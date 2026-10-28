@@ -8,7 +8,7 @@ class StoreUnitRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('units.create') ?? false;
+        return $this->user()?->can('units.create') ?? false;
     }
 
     public function rules(): array

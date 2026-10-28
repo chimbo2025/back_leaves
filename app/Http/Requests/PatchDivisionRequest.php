@@ -8,7 +8,7 @@ class PatchDivisionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('divisions.update') ?? false;
+        return $this->user()?->can('divisions.update') ?? false;
     }
 
     public function rules(): array

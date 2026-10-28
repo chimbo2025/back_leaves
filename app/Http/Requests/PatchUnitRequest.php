@@ -8,7 +8,7 @@ class PatchUnitRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('units.update') ?? false;
+        return $this->user()?->can('units.update') ?? false;
     }
 
     public function rules(): array
