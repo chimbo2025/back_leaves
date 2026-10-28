@@ -5,20 +5,20 @@ $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
 $missing = [
-    ['code'=>'approval_workflows.view','name'=>'Approval Workflows View','module'=>'approval_workflows','action'=>'view'],
-    ['code'=>'workflows.view','name'=>'Workflows View','module'=>'workflows','action'=>'view'],
-    ['code'=>'staff.view_own','name'=>'Staff Own View','module'=>'staff','action'=>'view_own'],
-    ['code'=>'staff.view_all','name'=>'Staff View All','module'=>'staff','action'=>'view_all'],
-    ['code'=>'employees.view','name'=>'Employees View','module'=>'employees','action'=>'view'],
-    ['code'=>'handovers.view','name'=>'Handovers View','module'=>'handovers','action'=>'view'],
-    ['code'=>'departments.view','name'=>'Departments View','module'=>'departments','action'=>'view'],
-    ['code'=>'positions.view','name'=>'Positions View','module'=>'positions','action'=>'view'],
-    ['code'=>'divisions.view','name'=>'Divisions View','module'=>'divisions','action'=>'view'],
-    ['code'=>'units.view','name'=>'Units View','module'=>'units','action'=>'view'],
-    ['code'=>'divisions.create','name'=>'Divisions Create','module'=>'divisions','action'=>'create'],
-    ['code'=>'units.create','name'=>'Units Create','module'=>'units','action'=>'create'],
-    ['code'=>'divisions.update','name'=>'Divisions Update','module'=>'divisions','action'=>'update'],
-    ['code'=>'units.update','name'=>'Units Update','module'=>'units','action'=>'update'],
+    ['code'=>'approval_workflows.view','label'=>'Approval Workflows View','module'=>'approval_workflows','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'workflows.view','label'=>'Workflows View','module'=>'workflows','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'staff.view_own','label'=>'Staff Own View','module'=>'staff','action'=>'view_own','status'=>'active','active'=>1],
+    ['code'=>'staff.view_all','label'=>'Staff View All','module'=>'staff','action'=>'view_all','status'=>'active','active'=>1],
+    ['code'=>'employees.view','label'=>'Employees View','module'=>'employees','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'handovers.view','label'=>'Handovers View','module'=>'handovers','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'departments.view','label'=>'Departments View','module'=>'departments','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'positions.view','label'=>'Positions View','module'=>'positions','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'divisions.view','label'=>'Divisions View','module'=>'divisions','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'units.view','label'=>'Units View','module'=>'units','action'=>'view','status'=>'active','active'=>1],
+    ['code'=>'divisions.create','label'=>'Divisions Create','module'=>'divisions','action'=>'create','status'=>'active','active'=>1],
+    ['code'=>'units.create','label'=>'Units Create','module'=>'units','action'=>'create','status'=>'active','active'=>1],
+    ['code'=>'divisions.update','label'=>'Divisions Update','module'=>'divisions','action'=>'update','status'=>'active','active'=>1],
+    ['code'=>'units.update','label'=>'Units Update','module'=>'units','action'=>'update','status'=>'active','active'=>1],
 ];
 
 $added = 0;
@@ -27,9 +27,11 @@ foreach ($missing as $m) {
     if (!$exists) {
         \DB::table('permissions')->insert([
             'code' => $m['code'],
-            'name' => $m['name'],
+            'label' => $m['label'],
             'module' => $m['module'],
             'action' => $m['action'],
+            'status' => $m['status'],
+            'active' => $m['active'],
             'created_at' => now(),
             'updated_at' => now(),
         ]);
