@@ -1,0 +1,34 @@
+﻿php : PHP Warning:  Module "openssl" is already loaded in Unknown on line 0
+At line:1 char:1
++ php -d max_execution_time=0 -d memory_limit=512M vendor/bin/pest --ba ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (PHP Warning:  M...known on line 0:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Warning: Module "openssl" is already loaded in Unknown on line 0
+
+   FAIL  Tests\Feature\Api\EffectiveGrantsTest
+  Γ¿» it pairs each capability with the zone or department that actually granted it
+  ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ  
+   FAILED  Tests\Feature\Api\EffectiveGrantsTest > it pairs each capability with the zone or departmΓÇª  QueryException   
+  SQLSTATE[HY000] [2002] No connection could be made because the target machine actively refused it (Connection: mysql, Host: 127.0.0.1, Port: 3306, Database: dpp_leave_test, SQL: select exists (select 1 from information_schema.tables where table_schema = schema() and table_name = 'migrations' and table_type in ('BASE TABLE', 'SYSTEM VERSIONED')) as `exists`)
+
+  at vendor\laravel\framework\src\Illuminate\Database\Connectors\Connector.php:66
+     62Γûò      */
+     63Γûò     protected function createPdoConnection($dsn, $username, #[\SensitiveParameter] $password, $options)
+     64Γûò     {
+     65Γûò         return version_compare(PHP_VERSION, '8.4.0', '<')
+  Γ₧£  66Γûò             ? new PDO($dsn, $username, $password, $options)
+     67Γûò             : PDO::connect($dsn, $username, $password, $options); /** @phpstan-ignore staticMethod.notFound (PHP 8.4) */
+     68Γûò     }
+     69Γûò 
+     70Γûò     /**
+
+  1   vendor\laravel\framework\src\Illuminate\Database\Connectors\Connector.php:66
+  2   vendor\laravel\framework\src\Illuminate\Database\Connectors\Connector.php:85
+
+
+  Tests:    1 failed, [2m9 pending[22m (0 assertions)
+  Duration: 17.90s
+

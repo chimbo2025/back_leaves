@@ -1,0 +1,9 @@
+﻿vendor/bin/pest : PHP Warning:  Module "openssl" is already loaded in Unknown on line 0
+At line:1 char:1
++ vendor/bin/pest tests/Feature/Api/EffectiveGrantsTest.php 2>&1 | Out- ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (PHP Warning:  M...known on line 0:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Warning: Module "openssl" is already loaded in Unknown on line 0
