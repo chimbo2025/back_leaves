@@ -4,7 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEmployeeRequest;
+use App\Http\Requests\PatchDivisionRequest;
+use App\Http\Requests\PatchUnitRequest;
+use App\Http\Requests\StoreDivisionRequest;
 use App\Http\Requests\StorePositionRequest;
+use App\Http\Requests\StoreUnitRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
 use App\Http\Requests\UpdatePositionRequest;
 use App\Models\Department;

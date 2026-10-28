@@ -1,21 +1,40 @@
 <?php
 namespace App\Http\Requests;
+
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
 class StoreUnitRequest extends FormRequest
 {
-    public function authorize(): bool { return true; }
+    public function authorize(): bool
+    {
+        return $this->user()?->hasPermission('units.create') ?? false;
+    }
+
     public function rules(): array
     {
         return [
-            'name' => 'required|string|max:191',
-            'code' => 'nullable|string|max:191',
-            'name_sw' => 'nullable|string|max:191',
-            'zone_id' => 'nullable|string|max:191',
-            'parent_department_id' => 'nullable|string|max:191',
-            'is_active' => 'nullable|boolean',
-            'sort_order' => 'nullable|integer',
-            'effective_from' => 'nullable|date',
-            'effective_to' => 'nullable|date',
+            'code' => ['required', 'string', 'max:191', Rule::unique('departments', 'code')->where(fn ($q) => $q->where('unit_type', 'independent_unit')->where('is_active', true))],
+            'name' => ['required', 'string', 'max:191'],
+            'unit_type' => ['required', 'string', 'in:independent_unit'],
+            'reports_to_unit_id' => ['nullable', 'string', 'max:191', Rule::exists('departments', 'id'), 'sometimes'],
+            'parent_department_id' => ['nullable', 'string', 'max:191', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'department')), 'sometimes'],
+            'zone_id' => ['nullable', 'string', 'max:191', Rule::exists('zones', 'id')],
+            'head_employee_id' => ['nullable', 'string', 'max:191', Rule::exists('employees', 'id')->where(fn ($q) => $q->where('is_active', true))],
+            'is_active' => ['nullable', 'boolean'],
+            'sort_order' => ['nullable', 'integer'],
+            'effective_from' => ['nullable', 'date'],
+            'effective_to' => ['nullable', 'date'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'unit_type.required' => 'The unit type is required.',
+            'unit_type.in' => 'The unit type must be independent_unit.',
+            'reports_to_unit_id.exists' => 'Reports-to unit must exist.',
+            'code.unique' => 'This unit code is already taken by an active unit.',
         ];
     }
 }
