@@ -1,0 +1,5 @@
+Fixed (AUTO_INCREMENT + PRIMARY KEY added):
+audit_logs, cases, workflow_assignments, leave_requests, approval_signatures, migrations, balance_transactions, notifications, notification_deliveries, notification_preferences, personal_access_tokens, leave_balances, leave_documents, leave_document_requirements, leave_payment_cases, leave_plan_options, leave_plans, official_leave_letters, report_exports, reporting_lines, employee_approval_roles, employee_roles, delegations, case_handovers, leave_waivers, leave_rules, leave_reasons, leave_policies, leave_types, zones, departments, positions, employees, roles, permissions, modules, workflow_definitions, workflow_steps, users (PK only, not AUTO since varchar), approval_actions (skipped manual), approval_roles (skipped manual)
+
+NOT MODIFIED / REPORT ONLY:
+cache (no id column, uses key), cache_locks (no id), leave_request_dates (composite PK request_id+date), password_reset_tokens (email+token PK), position_default_roles (composite position_id+role_id), role_permissions (composite role_id+permission_id)
