@@ -1,0 +1,10 @@
+Migration already exists (2026_09_09_210002_create_departments_table.php line 24):
+$table->boolean('is_active')->default(true);
+
+The column is missing from the production DB (Wasmer). I need to run:
+php artisan migrate
+
+This will add `is_active boolean not null default true` to the `departments` table.
+
+For the 422 error on POST /api/org/units (code field required):
+The frontend form in settings.tsx does NOT send `code` in the storeDivision/storeUnit payloads, but the backend validation requires it. Fix: add `code` field to the forms and ensure payloads include it.
