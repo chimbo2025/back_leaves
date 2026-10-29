@@ -3,12 +3,15 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Services\PermissionService;
 
 class PatchDivisionRequest extends FormRequest
 {
+    public function __construct(protected PermissionService $permissions) {}
+
     public function authorize(): bool
     {
-        return $this->user()?->can('divisions.update') ?? false;
+        return $this->permissions->can($this->user(), 'divisions', 'update') ?? false;
     }
 
     public function rules(): array

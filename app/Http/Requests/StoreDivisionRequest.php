@@ -3,12 +3,15 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Services\PermissionService;
 
 class StoreDivisionRequest extends FormRequest
 {
+    public function __construct(protected PermissionService $permissions) {}
+
     public function authorize(): bool
     {
-        return $this->user()?->can('divisions.create') ?? false;
+        return $this->permissions->can($this->user(), 'divisions', 'create') ?? false;
     }
 
     public function rules(): array
