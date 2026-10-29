@@ -19,7 +19,7 @@ class StoreUnitRequest extends FormRequest
         return [
             'code' => ['nullable', 'string', 'max:191', Rule::unique('departments', 'code')->where(fn ($q) => $q->where('unit_type', 'independent_unit')->where('is_active', true))],
             'name' => ['required', 'string', 'max:191'],
-            'unit_type' => ['nullable', 'string', 'in:independent_unit'],
+            'unit_type' => ['nullable', 'string'],
             'reports_to_unit_id' => ['nullable', 'string', 'max:191', Rule::exists('departments', 'id'), 'sometimes'],
             'parent_department_id' => ['nullable', 'string', 'max:191', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'department')), 'sometimes'],
             'zone_id' => ['nullable', 'string', 'max:191', Rule::exists('zones', 'id')],
