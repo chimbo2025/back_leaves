@@ -1024,7 +1024,7 @@ class OrganizationController extends Controller
             ->paginate($request->input('per_page', 20));
 
         return response()->json([
-            'data' => $divisions->items()->map(function (Department $d) use ($request) {
+            'data' => collect($divisions->items())->map(function (Department $d) use ($request) {
                 $head = $d->headGrant ?? null;
                 $employeeCount = Employee::where('department_id', $d->id)->where('is_active', true)->count();
 
@@ -1251,10 +1251,12 @@ class OrganizationController extends Controller
             ->paginate($request->input('per_page', 20));
 
         return response()->json([
-            'data' => $employees->items()->map(function (Employee $e) use ($canSeeSensitive) {
-                $e->hidden = ! $canSeeSensitive ? ['payroll_no', 'gender'] : [];
-                return $e;
-            })->map(fn (Employee $e) => [
+            'data' => collect($employees->items())
+                ->map(function (Employee $e) use ($canSeeSensitive) {
+                    $e->hidden = ! $canSeeSensitive ? ['payroll_no', 'gender'] : [];
+                    return $e;
+                })
+                ->map(fn (Employee $e) => [
                 'id' => $e->id,
                 'full_name' => $e->full_name,
                 'payroll_no' => $canSeeSensitive ? $e->payroll_no : null,
@@ -1298,7 +1300,7 @@ class OrganizationController extends Controller
             ->paginate($request->input('per_page', 20));
 
         return response()->json([
-            'data' => $units->items()->map(function (Department $d) use ($request) {
+            'data' => collect($units->items())->map(function (Department $d) use ($request) {
                 $head = $d->headGrant ?? null;
                 $employeeCount = Employee::where('department_id', $d->id)->where('is_active', true)->count();
 
