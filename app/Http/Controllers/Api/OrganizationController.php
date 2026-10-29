@@ -1049,7 +1049,7 @@ class OrganizationController extends Controller
                 'per_page' => $divisions->perPage(),
                 'current_page' => $divisions->currentPage(),
                 'last_page' => $divisions->lastPage(),
-                'path' => $divisions->url(),
+                'path' => $divisions->path(),
             ],
             'filters_applied' => [
                 'parent_department_id' => $parentId,
@@ -1326,7 +1326,7 @@ class OrganizationController extends Controller
                 'per_page' => $units->perPage(),
                 'current_page' => $units->currentPage(),
                 'last_page' => $units->lastPage(),
-                'path' => $units->url(),
+                'path' => $units->path(),
             ],
             'filters_applied' => [
                 'zone_id' => $zoneId,
