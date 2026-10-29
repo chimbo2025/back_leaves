@@ -17,7 +17,7 @@ class StoreUnitRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'code' => ['required', 'string', 'max:191', Rule::unique('departments', 'code')->where(fn ($q) => $q->where('unit_type', 'independent_unit')->where('is_active', true))],
+            'code' => ['nullable', 'string', 'max:191', Rule::unique('departments', 'code')->where(fn ($q) => $q->where('unit_type', 'independent_unit')->where('is_active', true))],
             'name' => ['required', 'string', 'max:191'],
             'unit_type' => ['required', 'string', 'in:independent_unit'],
             'reports_to_unit_id' => ['nullable', 'string', 'max:191', Rule::exists('departments', 'id'), 'sometimes'],

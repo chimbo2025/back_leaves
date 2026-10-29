@@ -1060,46 +1060,55 @@ class OrganizationController extends Controller
     }
 
     public function storeDivision(StoreDivisionRequest $request): JsonResponse
-    {
-        $data = $request->validated();
+{
+    $data = $request->validated();
 
-        // Validate parent department is not a circular parent
-        $parentId = $data['parent_department_id'] ?? null;
-        if ($parentId) {
-            $child = Department::find($data['id'] ?? $this->seqId('departments'));
-            if (!Department::validateNoCircularParent($child, Department::find($parentId))) {
-                return response()->json([
-                    'message' => 'Circular hierarchy detected: a division cannot be its own ancestor.',
-                    'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
-                ], 422);
-            }
+    // Auto-generate a unique `code` when the client omits it.
+    // (FormRequest still allows 'nullable' for code; this fills it in.)
+    if (empty($data['code'])) {
+        $base = strtolower(\Str::slug($data['name'] ?? 'division', '_'));
+        $code = $base;
+        $i = 1;
+        while (Department::where('code', $code)->exists()) {
+            $code = $base . '_' . $i++;
         }
-
-        // If this is a division, it must have a parent department (or be root)
-        // but we allow divisions under departments (existing structure)
-
-        $division = Department::create([
-            'id' => $this->seqId('departments'),
-            'name' => $data['name'],
-            'code' => $data['code'],
-            'name_sw' => $data['name_sw'] ?? null,
-            'zone_id' => $data['zone_id'] ?? null,
-            'parent_department_id' => $parentId,
-            'unit_type' => 'division',
-            'is_active' => $data['is_active'] ?? true,
-            'sort_order' => $data['sort_order'] ?? 0,
-            'effective_from' => $data['effective_from'] ?? null,
-            'effective_to' => $data['effective_to'] ?? null,
-        ]);
-
-        $this->audit->append('department', (string) $division->id, 'create', $request->user()->id, [
-            'name' => $division->name,
-            'unit_type' => 'division',
-            'parent_department_id' => $parentId,
-        ]);
-
-        return response()->json(['data' => $this->divisionToArray($division)], 201);
+        $data['code'] = $code;
     }
+
+    // Validate parent department is not a circular parent
+    $parentId = $data['parent_department_id'] ?? null;
+    if ($parentId) {
+        $child = Department::find($data['id'] ?? $this->seqId('departments'));
+        if (!Department::validateNoCircularParent($child, Department::find($parentId))) {
+            return response()->json([
+                'message' => 'Circular hierarchy detected: a division cannot be its own ancestor.',
+                'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
+            ], 422);
+        }
+    }
+
+    $division = Department::create([
+        'id'                    => $this->seqId('departments'),
+        'name'                  => $data['name'],
+        'code'                  => $data['code'],
+        'name_sw'               => $data['name_sw'] ?? null,
+        'zone_id'               => $data['zone_id'] ?? null,
+        'parent_department_id'  => $parentId,
+        'unit_type'             => 'division',
+        'is_active'             => $data['is_active'] ?? true,
+        'sort_order'            => $data['sort_order'] ?? 0,
+        'effective_from'        => $data['effective_from'] ?? null,
+        'effective_to'          => $data['effective_to'] ?? null,
+    ]);
+
+    $this->audit->append('department', (string) $division->id, 'create', $request->user()->id, [
+        'name' => $division->name,
+        'unit_type' => 'division',
+        'parent_department_id' => $parentId,
+    ]);
+
+    return response()->json(['data' => $this->divisionToArray($division)], 201);
+}
 
     public function showDivision(Department $division): JsonResponse
     {
@@ -1325,46 +1334,54 @@ class OrganizationController extends Controller
     }
 
     public function storeUnit(StoreUnitRequest $request): JsonResponse
-    {
-        $data = $request->validated();
+{
+    $data = $request->validated();
 
-        // Validate circular hierarchy
-        $parentId = $data['parent_department_id'] ?? null;
-        if ($parentId) {
-            $child = Department::find($this->seqId('departments'));
-            if (!Department::validateNoCircularParent($child, Department::find($parentId))) {
-                return response()->json([
-                    'message' => 'Circular hierarchy detected.',
-                    'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
-                ], 422);
-            }
+    // Auto-generate a unique `code` when the client omits it.
+    if (empty($data['code'])) {
+        $base = strtolower(\Str::slug($data['name'] ?? 'unit', '_'));
+        $code = $base;
+        $i = 1;
+        while (Department::where('code', $code)->exists()) {
+            $code = $base . '_' . $i++;
         }
-
-        // For independent units, reports_to/parent is optional (they can be top-level
-        // or under a department). The unit_type='independent_unit' distinguishes them.
-
-        $unit = Department::create([
-            'id' => $this->seqId('departments'),
-            'name' => $data['name'],
-            'code' => $data['code'],
-            'name_sw' => $data['name_sw'] ?? null,
-            'zone_id' => $data['zone_id'] ?? null,
-            'parent_department_id' => $parentId,
-            'unit_type' => 'independent_unit',
-            'is_active' => $data['is_active'] ?? true,
-            'sort_order' => $data['sort_order'] ?? 0,
-            'effective_from' => $data['effective_from'] ?? null,
-            'effective_to' => $data['effective_to'] ?? null,
-        ]);
-
-        $this->audit->append('department', (string) $unit->id, 'create', $request->user()->id, [
-            'name' => $unit->name,
-            'unit_type' => 'independent_unit',
-            'parent_department_id' => $parentId,
-        ]);
-
-        return response()->json(['data' => $this->unitToArray($unit)], 201);
+        $data['code'] = $code;
     }
+
+    // Validate circular hierarchy
+    $parentId = $data['parent_department_id'] ?? null;
+    if ($parentId) {
+        $child = Department::find($this->seqId('departments'));
+        if (!Department::validateNoCircularParent($child, Department::find($parentId))) {
+            return response()->json([
+                'message' => 'Circular hierarchy detected.',
+                'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
+            ], 422);
+        }
+    }
+
+    $unit = Department::create([
+        'id'                    => $this->seqId('departments'),
+        'name'                  => $data['name'],
+        'code'                  => $data['code'],
+        'name_sw'               => $data['name_sw'] ?? null,
+        'zone_id'               => $data['zone_id'] ?? null,
+        'parent_department_id'  => $parentId,
+        'unit_type'             => 'independent_unit',
+        'is_active'             => $data['is_active'] ?? true,
+        'sort_order'            => $data['sort_order'] ?? 0,
+        'effective_from'        => $data['effective_from'] ?? null,
+        'effective_to'          => $data['effective_to'] ?? null,
+    ]);
+
+    $this->audit->append('department', (string) $unit->id, 'create', $request->user()->id, [
+        'name' => $unit->name,
+        'unit_type' => 'independent_unit',
+        'parent_department_id' => $parentId,
+    ]);
+
+    return response()->json(['data' => $this->unitToArray($unit)], 201);
+}
 
     public function showUnit(Department $unit): JsonResponse
     {
@@ -1483,7 +1500,6 @@ class OrganizationController extends Controller
             'parent_department_id' => $d->parent_department_id,
             'unit_type' => $d->unit_type,
             'is_active' => $d->is_active,
-            'is_independent' => $d->is_independent,
             'sort_order' => $d->sort_order,
             'reports_directly_to_leadership' => $d->reports_directly_to_leadership,
             'effective_from' => $d->effective_from,
@@ -1515,7 +1531,6 @@ class OrganizationController extends Controller
             'parent_department_id' => $d->parent_department_id,
             'unit_type' => $d->unit_type,
             'is_active' => $d->is_active,
-            'is_independent' => $d->is_independent,
             'sort_order' => $d->sort_order,
             'reports_directly_to_leadership' => $d->reports_directly_to_leadership,
             'effective_from' => $d->effective_from,

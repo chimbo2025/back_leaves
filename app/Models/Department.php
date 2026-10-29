@@ -15,22 +15,16 @@ class Department extends Model
 
     protected $fillable = [
         'id', 'name', 'code', 'name_sw', 'zone_id', 'parent_department_id',
-        'unit_type', 'is_active', 'is_independent', 'sort_order',
+        'unit_type', 'is_active', 'sort_order',
         'reports_directly_to_leadership', 'effective_from', 'effective_to',
-    ];
-
-    protected $casts = [
-        'is_active' => 'boolean',
-        'is_independent' => 'boolean',
-        'reports_directly_to_leadership' => 'boolean',
-        'effective_from' => 'date',
-        'effective_to' => 'date',
     ];
 
     protected function casts(): array
     {
         return [
+            'is_active' => 'boolean',
             'reports_directly_to_leadership' => 'boolean',
+            'sort_order' => 'integer',
             'effective_from' => 'date:Y-m-d',
             'effective_to' => 'date:Y-m-d',
         ];
@@ -51,10 +45,18 @@ class Department extends Model
         return $this->hasMany(Department::class, 'parent_department_id');
     }
 
-    /**
-     * Validate that assigning this department as a parent would not create a
-     * circular relationship (a department cannot be its own ancestor).
-     */
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class, 'department_id');
+    }
+
+    public function headGrant(): HasOne
+    {
+        return $this->hasOne(EmployeeRole::class, 'department_id')
+            ->whereIn('role_id', ['DEPT_HEAD', 'ZONAL_HEAD'])
+            ->latestOfMany('id');
+    }
+
     public static function validateNoCircularParent(?Department $potentialChild, ?Department $potentialParent): bool
     {
         if (! $potentialChild || ! $potentialParent) {
@@ -65,10 +67,10 @@ class Department extends Model
         $current = $potentialParent;
         while ($current !== null) {
             if ($current->id === $potentialChild->id) {
-                return false; // circular detected
+                return false;
             }
             if (in_array($current->id, $visited)) {
-                return false; // already visited (should not happen with proper DB constraints)
+                return false;
             }
             $visited[] = $current->id;
             $current = $current->parent;
@@ -76,9 +78,6 @@ class Department extends Model
         return true;
     }
 
-    /**
-     * Return the full parent chain including this department.
-     */
     public function ancestorChain(): \Generator
     {
         $current = $this;

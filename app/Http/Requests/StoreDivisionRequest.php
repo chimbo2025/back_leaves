@@ -17,7 +17,7 @@ class StoreDivisionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'code' => ['required', 'string', 'max:191', Rule::unique('departments', 'code')->where(fn ($q) => $q->where('unit_type', 'division')->where('is_active', true))],
+            'code' => ['nullable', 'string', 'max:191', Rule::unique('departments', 'code')->where(fn ($q) => $q->where('unit_type', 'division')->where('is_active', true))],
             'name' => ['required', 'string', 'max:191'],
             'parent_department_id' => ['required', 'string', 'max:191', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('is_active', true))],
             'zone_id' => ['nullable', 'string', 'max:191', Rule::exists('zones', 'id')],
