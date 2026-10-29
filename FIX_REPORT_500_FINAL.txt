@@ -1,0 +1,44 @@
+Root cause:
+authorize() used $this->user()?->hasPermission('...'), which does not exist on User model. Laravel's authorization uses can('module.action') via Authorizable trait backed by PermissionService.
+
+Invalid calls (4 files):
+- app/Http/Requests/StoreDivisionRequest.php: divisions.create
+- app/Http/Requests/StoreUnitRequest.php: units.create
+- app/Http/Requests/PatchDivisionRequest.php: divisions.update
+- app/Http/Requests/PatchUnitRequest.php: units.update
+
+Exact replacement:
+$this->user()?->hasPermission('divisions.create') -> $this->user()?->can('divisions.create')
+(same for units.create, divisions.update, units.update)
+
+Permission codes used:
+divisions.create, divisions.update, units.create, units.update (same as routes middleware).
+
+Files changed:
+- app/Http/Requests/StoreDivisionRequest.php (authorize + rules)
+- app/Http/Requests/StoreUnitRequest.php (authorize + rules)
+- app/Http/Requests/PatchDivisionRequest.php (authorize + rules)
+- app/Http/Requests/PatchUnitRequest.php (authorize + rules)
+- tests/Feature/DivisionUnitTest.php (new test file)
+- FIX_REPORT_500.txt (this file)
+
+Validation rules:
+Division: code required/unique among active divisions; name required; parent_department_id required/exists/active; zone_id exists; head_employee_id nullable/exists/active; circular parent handled by controller.
+Unit: code required/unique among active independent_unit; name required; unit_type required/in:independent_unit; reports_to_unit_id exists; parent_department_id exists/department; zone_id exists; head_employee_id nullable/exists/active; circular handled by controller.
+
+Tests:
+- authorized admin division create: passes
+- unauthorized division create: returns 403 (authorize false)
+- invalid division payload: 422
+- duplicate division code: 422
+- authorized admin unit create: passes
+- unauthorized unit create: returns 403
+- invalid unit payload: 422
+- duplicate unit code: 422
+- GET /api/org/divisions: 200
+- GET /api/org/units: 200
+- POST /api/org/divisions: 201 (valid) / 422 (invalid) / 403 (unauthorized) — no 500
+- POST /api/org/units: 201 (valid) / 422 (invalid) / 403 (unauthorized) — no 500
+
+Confirmation:
+Both POST endpoints no longer return 500; authorization uses existing PermissionService::can(); validation returns 422 as required.
