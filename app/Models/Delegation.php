@@ -13,7 +13,7 @@ class Delegation extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'id', 'delegator_employee_id', 'delegate_employee_id', 'approval_role_id',
+        'id', 'delegator_employee_id', 'delegate_employee_id', 'role_id', 'approval_role_id',
         'start_date', 'end_date', 'authorized_by', 'active',
     ];
 
@@ -40,6 +40,6 @@ class Delegation extends Model
 
     public function role(): BelongsTo
     {
-        return $this->belongsTo(Role::class, 'approval_role_id');
+        return $this->belongsTo(Role::class, 'role_id');
     }
 }

@@ -5,10 +5,14 @@ namespace App\Policies;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\AccessScopeService;
+use App\Services\PermissionService;
 
 class EmployeePolicy
 {
-    public function __construct(protected AccessScopeService $scope) {}
+    public function __construct(
+        protected AccessScopeService $scope,
+        protected PermissionService $permissions,
+    ) {}
 
     /**
      * Staff-directory visibility: self, plus the caller's zone/department
@@ -34,5 +38,16 @@ class EmployeePolicy
 
         return in_array($employee->zone_id, $scope->allowedZoneIds, true)
             || in_array($employee->department_id, $scope->allowedDepartmentIds, true);
+    }
+
+    /**
+     * Hard deletion is a separate capability from ordinary administration.
+     * It is deliberately never self-service: an administrator must ask
+     * somebody else to remove their own record.
+     */
+    public function forceDelete(User $user, Employee $employee): bool
+    {
+        return $this->permissions->can($user, 'employees', 'force_delete')
+            && $employee->id !== $user->employee?->id;
     }
 }

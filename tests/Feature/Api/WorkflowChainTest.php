@@ -12,11 +12,13 @@ it('submits a draft and advances a full approval chain to completion', function 
     // so it escalates to the final authority e1.
     $token = apiLogin('u3');
     $adminToken = apiLogin('u1');
+    $start = now()->addDays(30)->toDateString();
+    $end = now()->addDays(34)->toDateString();
 
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-10',
-        'end_date' => '2026-11-14',
+        'start_date' => $start,
+        'end_date' => $end,
         'reason' => 'Annual leave — planned well in advance.',
     ], ['Authorization' => "Bearer {$token}"]);
 
@@ -38,7 +40,7 @@ it('submits a draft and advances a full approval chain to completion', function 
     expect($submitted->json('workflow')[2]['via'])->toBe('escalated');
 
     // request dates are materialised for the absence calendar
-    $this->assertDatabaseHas('leave_request_dates', ['request_id' => $requestId, 'the_date' => '2026-11-10']);
+    $this->assertDatabaseHas('leave_request_dates', ['request_id' => $requestId, 'the_date' => $start]);
 
     // Step 1 approved by e1 -> advances to step 2 (ZONAL_HEAD, delegated to e8)
     $this->postJson("/api/requests/{$requestId}/decide", ['decision' => 'approved', 'signature_hash' => str_repeat('a', 64)], ['Authorization' => "Bearer {$adminToken}"])
@@ -74,11 +76,13 @@ it('routes a delegated DEPT_HEAD step to the delegate over the standing holder',
     // reporting line above the DPP), DEPT_HEAD (d2, standing holder = e6) is
     // overridden by active delegation del1 -> e7, then HR e3.
     $dppToken = apiLogin('u1');
+    $start = now()->addDays(30)->toDateString();
+    $end = now()->addDays(39)->toDateString();
 
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt7',
-        'start_date' => '2026-11-05',
-        'end_date' => '2026-11-14',
+        'start_date' => $start,
+        'end_date' => $end,
         'reason' => 'Personal matters requiring extended absence.',
     ], ['Authorization' => "Bearer {$dppToken}"]);
     $created->assertStatus(201);

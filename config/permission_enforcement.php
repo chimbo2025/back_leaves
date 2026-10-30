@@ -39,6 +39,8 @@ return [
         'requests.reject' => 'app/Services/LeaveRequestService.php::decide for rejected decisions (can requests reject)',
         'requests.return' => 'app/Services/LeaveRequestService.php::decide for returned decisions (can requests return)',
         'requests.view_cross_zone' => 'app/Services/AccessScopeService.php::canViewAllZones via CROSS_ZONE_ACTION',
+        'leave_requests.force_delete' => 'routes/api.php: DELETE api/requests/{id}/force (permission:leave_requests.force_delete) + app/Policies/LeaveRequestPolicy.php::forceDelete + app/Http/Controllers/Api/RequestController.php::forceDelete',
+        'employees.force_delete' => 'routes/api.php: DELETE api/org/employees/{id} (permission:employees.force_delete) + app/Policies/EmployeePolicy.php::forceDelete + app/Http/Controllers/Api/OrganizationController.php::destroy',
         'policies.view' => 'routes/api.php: GET api/workflows + GET api/workflows/{id} (permission:policies.view)',
         'policies.create' => 'routes/api.php: POST api/policies (permission:policies.create)',
         'policies.edit_policy' => 'routes/api.php: POST and PATCH api/workflows (permission:policies.edit_policy) + app/Http/Controllers/Api/WorkflowController.php',

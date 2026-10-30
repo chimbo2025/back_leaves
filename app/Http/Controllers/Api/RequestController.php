@@ -18,6 +18,7 @@ use App\Services\WorkflowResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -169,6 +170,58 @@ class RequestController extends Controller
         $this->service->destroyDraft($leaveRequest, $request->user()->id);
 
         return response()->json(['message' => 'Draft deleted.', 'id' => $leaveRequest->id]);
+    }
+
+    /**
+     * Permanently delete a request and its approval chain.
+     *
+     * Requires leave_requests.force_delete and a mandatory reason. Documents
+     * are detached and preserved (request_id = NULL) before the row goes;
+     * payment cases are preserved by their NULL-on-delete request pointer.
+     * The audit ledger records leave_request_force_deleted before deletion.
+     */
+    public function forceDelete(Request $request, LeaveRequest $leaveRequest): JsonResponse
+    {
+        $this->authorize('forceDelete', $leaveRequest);
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        $id = $leaveRequest->id;
+        $ref = $leaveRequest->ref;
+        $employeeId = $leaveRequest->employee_id;
+        $status = $leaveRequest->status;
+
+        $documentCount = $leaveRequest->documents()->count();
+        $paymentCaseCount = DB::table('leave_payment_cases')
+            ->where('leave_request_id', $id)
+            ->count();
+
+        DB::transaction(function () use ($request, $leaveRequest, $id, $ref, $employeeId, $status, $documentCount, $paymentCaseCount, $data) {
+            // Evidence survives the request: detach instead of cascading.
+            DB::table('leave_documents')->where('request_id', $id)->update(['request_id' => null]);
+
+            $this->audit->append('leave_request', (string) $id, 'leave_request_force_deleted', $request->user()->id, [
+                'ref' => $ref,
+                'employee_id' => $employeeId,
+                'status' => $status,
+                'detached_documents' => $documentCount,
+                'preserved_payment_cases' => $paymentCaseCount,
+            ], $data['reason']);
+
+            // Cascades: assignments, approval actions, signatures, request
+            // dates, returns and official letters. Payment cases and balance
+            // transactions keep their history through NULL-on-delete pointers.
+            $leaveRequest->delete();
+        });
+
+        return response()->json([
+            'message' => "{$ref} permanently deleted.",
+            'id' => $id,
+            'detached_documents' => $documentCount,
+            'preserved_payment_cases' => $paymentCaseCount,
+        ]);
     }
 
     /** Resolved approval chain preview for the submit confirmation modal. */

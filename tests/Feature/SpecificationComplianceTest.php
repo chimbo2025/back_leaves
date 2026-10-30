@@ -36,8 +36,9 @@ class SpecificationComplianceTest extends TestCase
     /** 2. Workflow definitions fully dynamic via approval_role_id */
     public function test_workflow_steps_use_approval_role_ids(): void
     {
-        $role = ApprovalRole::create([
+        $role = ApprovalRole::updateOrCreate([
             'id' => 'supervisor',
+        ], [
             'code' => 'supervisor', 'name' => 'Supervisor',
             'resolution_type' => 'supervisor', 'is_active' => true,
         ]);

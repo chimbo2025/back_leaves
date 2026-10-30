@@ -19,7 +19,7 @@ class WorkflowController extends Controller
     public function index(): JsonResponse
     {
         return response()->json([
-            'data' => WorkflowDefinition::with(['leaveType', 'department', 'zone', 'steps'])
+            'data' => WorkflowDefinition::with(['leaveType', 'department', 'steps.approvalRole'])
                 ->orderBy('leave_type_id')
                 ->get(),
         ]);
@@ -27,7 +27,7 @@ class WorkflowController extends Controller
 
     public function show(WorkflowDefinition $workflowDefinition): JsonResponse
     {
-        return response()->json(['data' => $workflowDefinition->load(['leaveType', 'department', 'zone', 'steps'])]);
+        return response()->json(['data' => $workflowDefinition->load(['leaveType', 'department', 'steps.approvalRole'])]);
     }
 
     /** Create a new workflow definition/version (frontend admin console). */
@@ -47,7 +47,6 @@ class WorkflowController extends Controller
             'leave_type_id' => $form->input('leave_type_id'),
             'version' => $version,
             'min_duration_days' => (int) ($form->input('min_duration_days', 0)),
-            'zone_id' => $form->input('zone_id'),
             'department_id' => $form->input('department_id'),
             'effective_from' => $from,
             'effective_to' => $to,
@@ -88,7 +87,6 @@ class WorkflowController extends Controller
         $patch = [
             'version' => $version,
             'min_duration_days' => (int) $form->input('min_duration_days', $workflowDefinition->min_duration_days),
-            'zone_id' => $form->input('zone_id', $workflowDefinition->zone_id),
             'department_id' => $form->input('department_id', $workflowDefinition->department_id),
             'effective_from' => $from,
             'effective_to' => $to,
@@ -108,7 +106,7 @@ class WorkflowController extends Controller
             'version' => $version,
         ]);
 
-        return response()->json(['data' => $workflowDefinition->fresh(['leaveType', 'department', 'zone', 'steps'])]);
+        return response()->json(['data' => $workflowDefinition->fresh(['leaveType', 'department', 'steps.approvalRole'])]);
     }
 
     /**
@@ -177,9 +175,15 @@ class WorkflowController extends Controller
             WorkflowStep::create([
                 'workflow_def_id' => $def->id,
                 'step_order' => $i + 1,
-                'role_required' => $step['role_required'],
+                'approval_role_id' => $step['approval_role_id'] ?? null,
+                'fallback_approval_role_id' => $step['fallback_approval_role_id'] ?? null,
+                // Legacy compatibility: pre-catalog definitions still carry a
+                // permission role id. New definitions send approval_role_id.
+                'role_required' => $step['role_required'] ?? null,
                 'sla_days' => (int) $step['sla_days'],
                 'is_mandatory' => (bool) ($step['is_mandatory'] ?? true),
+                'allow_same_person_as_previous_steps' => (bool) ($step['allow_same_person_as_previous_steps'] ?? false),
+                'conditions' => $step['conditions'] ?? null,
                 'escalation_after_sla' => (bool) ($step['escalation_after_sla'] ?? true),
                 'note' => $step['note'] ?? null,
             ]);

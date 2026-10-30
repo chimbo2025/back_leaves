@@ -11,6 +11,19 @@ use Illuminate\Validation\ValidationException;
 
 class DelegationController extends Controller
 {
+    /**
+     * The delegation form still speaks legacy role codes, while the resolver
+     * targets the dynamic approval-role catalog. Keep the bridge in one place
+     * so a stored delegation is visible to WorkflowResolver immediately.
+     *
+     * @var array<string,string>
+     */
+    private const APPROVAL_ROLE_MAP = [
+        'SUPERVISOR' => 'supervisor',
+        'DEPT_HEAD' => 'department_head',
+        'ZONAL_HEAD' => 'zonal_head',
+    ];
+
     /** A user manages delegations for roles they actually hold. */
     public function index(Request $request): JsonResponse
     {
@@ -60,6 +73,7 @@ class DelegationController extends Controller
             'delegator_employee_id' => $employee->id,
             'delegate_employee_id' => $request->delegate_employee_id,
             'role_id' => $request->role_id,
+            'approval_role_id' => self::APPROVAL_ROLE_MAP[$request->role_id] ?? null,
             'start_date' => $request->start_date,
             'end_date' => $request->end_date,
             'authorized_by' => $employee->id,

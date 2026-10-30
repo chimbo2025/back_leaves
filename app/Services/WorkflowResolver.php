@@ -36,18 +36,39 @@ class WorkflowResolver
     /** @var array{assignee: ?Employee, via: 'standing'|'delegation'|'escalated'|'default'} */
     public function resolveApprover(Employee $employee, string $approvalRoleId, ?Collection $delegations = null): array
     {
-        $approvalRole = ApprovalRole::where('id', $approvalRoleId)->first();
+        $approvalRole = ApprovalRole::where('id', $approvalRoleId)
+            ->orWhere('code', $approvalRoleId)
+            ->first();
+
+        // Steps written before the catalog existed carry a legacy role code
+        // (SUPERVISOR, DEPT_HEAD, ...). Translate it rather than special-casing
+        // each caller.
+        if (! $approvalRole && ($legacy = $this->legacyApprovalRoleCode($approvalRoleId))) {
+            $approvalRole = ApprovalRole::where('code', $legacy)->first();
+        }
 
         if (! $approvalRole) {
             return $this->noHolder('approval role not found: ' . $approvalRoleId);
         }
 
+        $approvalRoleId = $approvalRole->id;
         $resolutionType = $approvalRole->resolution_type ?? 'employee_approval_roles';
 
+        // Resolve the standing holder first: a delegation only overrides the
+        // authority the delegator actually holds for this request. Without that
+        // guard a department-head delegation in one department would approve
+        // every department's requests.
+        $standing = $this->standingHolder($employee, $approvalRoleId, $resolutionType);
+
         // 1. Active delegation for this role overrides the standing holder.
-        $active = ($delegations ?? Delegation::all())->first(function (Delegation $d) use ($employee, $approvalRoleId, $resolutionType) {
+        //    When a standing holder exists, only that holder's own delegation
+        //    applies (a department-head delegation must not approve another
+        //    department's requests). When nobody stands in the role for this
+        //    request, any active delegation for the role is the fallback.
+        $active = ($delegations ?? Delegation::all())->first(function (Delegation $d) use ($employee, $approvalRoleId, $standing) {
             return $d->active
                 && $d->approval_role_id === $approvalRoleId
+                && ($standing === null || $d->delegator_employee_id === $standing->id)
                 && Carbon::parse($d->start_date)->lte(Carbon::parse(now()->toDateString()))
                 && Carbon::parse($d->end_date)->gte(Carbon::parse(now()->toDateString()))
                 && $d->delegate_employee_id !== $employee->id; // never delegate back to the requester
@@ -57,15 +78,13 @@ class WorkflowResolver
             return ['assignee' => Employee::find($active->delegate_employee_id), 'via' => 'delegation'];
         }
 
-        // 2. Standing holder — resolve based on resolution_type
-        $holder = $this->standingHolder($employee, $approvalRoleId, $resolutionType);
-
-        if ($holder && $holder->id !== $employee->id) {
-            return ['assignee' => $holder, 'via' => 'standing'];
+        // 2. Standing holder — resolved above.
+        if ($standing && $standing->id !== $employee->id) {
+            return ['assignee' => $standing, 'via' => 'standing'];
         }
 
         // Self-exclusion: requester holds the role themselves — try another holder
-        if ($holder && $holder->id === $employee->id) {
+        if ($standing && $standing->id === $employee->id) {
             $other = $this->standingHolder($employee, $approvalRoleId, $resolutionType, exclude: $employee->id);
             $final = $this->standingHolder($employee, 'final_authority', $resolutionType, exclude: $employee->id);
 
@@ -91,28 +110,32 @@ class WorkflowResolver
         // === Source: employee_approval_roles ===
         $approvalHolder = null;
         if (in_array($resolutionType, ['employee_approval_roles', 'both'], true)) {
-            $query = EmployeeApprovalRole::where('employee_id', '!=', $employee->id)
-                ->where('approval_role_id', $approvalRoleId)
-                ->where('active', true)
+            $query = EmployeeApprovalRole::where('approval_role_id', $approvalRoleId)
                 ->where(function ($q) {
-                    $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', now()->toDateString())
-                        ->whereNull('effective_to')->orWhereDate('effective_to', '>=', now()->toDateString());
+                    $q->whereNull('effective_from')
+                        ->orWhereDate('effective_from', '<=', now()->toDateString());
+                })
+                ->where(function ($q) {
+                    $q->whereNull('effective_to')
+                        ->orWhereDate('effective_to', '>=', now()->toDateString());
+                })
+                // A grant with no unit is organisation-wide; a unit-scoped grant
+                // only answers for staff placed in that unit.
+                ->where(function ($q) use ($employee) {
+                    $q->whereNull('organizational_unit_id');
+                    if ($employee->department_id) {
+                        $q->orWhere('organizational_unit_id', $employee->department_id);
+                    }
+                })
+                ->where(function ($q) use ($employee) {
+                    $q->whereNull('zone_id');
+                    if ($employee->zone_id) {
+                        $q->orWhere('zone_id', $employee->zone_id);
+                    }
                 });
-
-            if ($employee->department_id) {
-                $query->orWhere(function ($q) use ($employee) {
-                    $q->whereNull('organizational_unit_id')
-                        ->orWhere('organizational_unit_id', $employee->department_id);
-                });
-            }
-            if ($employee->zone_id) {
-                $query->orWhere(function ($q) use ($employee) {
-                    $q->whereNull('zone_id')->orWhere('zone_id', $employee->zone_id);
-                });
-            }
 
             $rows = $query->get()->sortByDesc(function ($er) use ($employee) {
-                $score = 0;
+                $score = $er->is_primary ? 4 : 0;
                 if ($er->organizational_unit_id === $employee->department_id) {
                     $score += 2;
                 } elseif ($er->organizational_unit_id === null && $employee->department_id === null) {
@@ -183,22 +206,37 @@ class WorkflowResolver
 
         $chain = [];
         $present = collect();
+        $lastAssigneeId = null;
 
         foreach ($steps as $step) {
-            // Skip FINAL_AUTHORITY steps here — they are appended per rule #12
-            if ($step->role_required === 'FINAL_AUTHORITY') {
+            // Skip final-authority steps here — they are appended last, after
+            // the configured chain, when the policy demands a final sign-off.
+            if ($this->isFinalAuthorityStep($step)) {
                 continue;
             }
 
-            // Resolve the assignee using the step's approval_role_id
-            $approvalRoleId = $step->approval_role_id;
-            if (! $approvalRoleId) {
-                // Fallback to legacy role_required if approval_role_id is not set
-                $approvalRoleId = $step->role_required;
-            }
+            // Resolve the assignee using the step's approval_role_id. The
+            // legacy role_required fallback keeps pre-catalog definitions
+            // resolvable without hard-coding any role in the resolver.
+            $approvalRoleId = $step->approval_role_id ?: $step->role_required;
 
             $entry = $this->resolveApprover($employee, $approvalRoleId, $delegations);
+
+            // Fallback approval role: only used when the primary role has no
+            // standing holder.
+            if (! $entry && $step->fallback_approval_role_id) {
+                $entry = $this->resolveApprover($employee, $step->fallback_approval_role_id, $delegations);
+            }
+
             if (! $entry) {
+                // The top of the hierarchy (the DPP) has no supervisor. An
+                // unstaffed supervisor step there is expected, not a
+                // configuration error, so it is skipped rather than blocking
+                // the whole request.
+                if ($this->isUnstaffedSupervisorStep($step, $employee, $approvalRoleId)) {
+                    continue;
+                }
+
                 // No assignee for this step — depending on mandatory/optional
                 $isMandatory = $step->is_mandatory ?? true;
                 if ($isMandatory) {
@@ -221,18 +259,53 @@ class WorkflowResolver
                     continue;
                 }
             } else {
-                // Valid assignee found — add to chain and mark as present
-                // Normalize entry: convert assignee Employee object to assignee_id/assignee_name strings
+                // Valid assignee found — add to chain and mark as present.
+                // Collapse duplicate approvers unless the step explicitly
+                // allows the same person to act twice in a row.
                 $assignee = $entry['assignee'];
                 $assigneeId = $assignee?->id;
+
+                // Collapse a duplicate approver only when it is the immediately
+                // preceding step (non-consecutive repeats remain distinct
+                // sign-offs). The step can opt out explicitly.
+                if ($assigneeId !== null && $assigneeId === $lastAssigneeId
+                    && ! ($step->allow_same_person_as_previous_steps ?? false)) {
+                    $chain[] = [
+                        'step_id' => $step->id,
+                        'role' => $step->role_required ?: ($step->approvalRole?->code ?? 'UNKNOWN'),
+                        'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
+                        'assignee_id' => null,
+                        'assignee_name' => null,
+                        'via' => 'collapsed_duplicate',
+                        'sla_days' => $step->sla_days ?? 3,
+                        'due_at' => null,
+                        'note' => 'Skipped: same approver as the previous step.',
+                    ];
+
+                    continue;
+                }
+
+                // Normalize entry: convert assignee Employee object to assignee_id/assignee_name strings
                 $assigneeName = $assignee?->full_name;
-                $present->push($assigneeId);
+                if ($assigneeId !== null) {
+                    $present->push($assigneeId);
+                }
+                $slaDays = $step->sla_days ?? 3;
                 $entry = array_merge($entry, [
+                    'step_id' => $step->id,
+                    'role' => $step->role_required ?: ($step->approvalRole?->code ?? 'UNKNOWN'),
+                    'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
                     'assignee_id' => $assigneeId,
                     'assignee_name' => $assigneeName,
+                    'sla_days' => $slaDays,
+                    'due_at' => Carbon::parse($request->submitted_at ?? now())
+                        ->addDays($slaDays)
+                        ->toDateTimeString(),
+                    'note' => $step->note,
                 ]);
                 unset($entry['assignee']);
                 $chain[] = $entry;
+                $lastAssigneeId = $assigneeId;
             }
         }
 
@@ -246,8 +319,9 @@ class WorkflowResolver
             }
         }
 
-        // Fallback: if chain is empty but the definition has a FINAL_AUTHORITY step
-        if ($chain === [] && $def->steps->contains('role_required', 'FINAL_AUTHORITY')) {
+        // Fallback: if chain is empty but the definition carries a final
+        // authority step, append that sign-off.
+        if ($chain === [] && $def->steps->contains(fn (WorkflowStep $step) => $this->isFinalAuthorityStep($step))) {
             $entry = $this->finalAuthorityEntry($request, $employee, $steps, $present);
             if ($entry) {
                 $chain[] = $entry;
@@ -318,8 +392,9 @@ class WorkflowResolver
      */
     protected function finalAuthorityEntry(LeaveRequest $request, Employee $employee, Collection $steps, Collection $present): ?array
     {
-        $finalStep = $steps->firstWhere('role_required', 'FINAL_AUTHORITY');
-        $finalHolder = $this->standingHolder($employee, 'final_authority', 'both', exclude: $employee->id);
+        $finalStep = $steps->first(fn (WorkflowStep $step) => $this->isFinalAuthorityStep($step));
+        $approvalRoleId = $finalStep?->approval_role_id ?: 'final_authority';
+        $finalHolder = $this->standingHolder($employee, $approvalRoleId, 'both', exclude: $employee->id);
 
         if (! $finalHolder || $present->contains($finalHolder->id)) {
             return null;
@@ -350,6 +425,11 @@ class WorkflowResolver
 
     /**
      * Select the most specific active workflow definition for the given request.
+     *
+     * Workflow scope is DEPARTMENT ONLY (organization refactor). Divisions and
+     * independent units are organizational placement and never influence
+     * resolution; the department chain still lets a definition on an ancestor
+     * department cover its divisions.
      */
     protected function findDefinition(Employee $employee, LeaveRequest $request): ?WorkflowDefinition
     {
@@ -367,18 +447,79 @@ class WorkflowResolver
             $q->whereNull('department_id')
                 ->orWhereIn('department_id', $deptChain);
         })
-            ->where(function ($q) use ($employee) {
-                $q->whereNull('zone_id')->orWhere('zone_id', $employee->zone_id);
-            })
             ->where('effective_from', '<=', $day)
             ->where(function ($q) use ($day) {
                 $q->whereNull('effective_to')->orWhere('effective_to', '>', $day);
             })
             ->orderByRaw('department_id IS NOT NULL DESC')
-            ->orderByRaw('zone_id IS NOT NULL DESC')
             ->orderByDesc('min_duration_days')
             ->orderByDesc('version')
             ->first();
+    }
+
+    /**
+     * Translate a legacy role code to an approval-role code.
+     *
+     * Returns null when the input is already a catalog code (or unknown), so
+     * the caller can fall through to the normal not-found handling.
+     */
+    protected function legacyApprovalRoleCode(string $code): ?string
+    {
+        $map = [
+            'SUPERVISOR' => 'supervisor',
+            'DEPT_HEAD' => 'department_head',
+            'ZONAL_HEAD' => 'zonal_head',
+            'UNIT_HEAD' => 'unit_head',
+            'DIVISION_HEAD' => 'division_head',
+            'HR' => 'hr_reviewer',
+            'HR_RECORDER' => 'hr_recorder',
+            'DEPUTY_DPP' => 'deputy_dpp',
+            'FINAL_AUTHORITY' => 'final_authority',
+            'ACCOUNTING' => 'accounting_reviewer',
+        ];
+
+        return $map[$code] ?? null;
+    }
+
+    /**
+     * A supervisor step cannot be staffed for someone with no reporting line
+     * above them (the DPP). Treat that as an expected skip, not a hard
+     * configuration failure.
+     */
+    protected function isUnstaffedSupervisorStep(WorkflowStep $step, Employee $employee, string $approvalRoleId): bool
+    {
+        $role = ApprovalRole::where('id', $approvalRoleId)
+            ->orWhere('code', $approvalRoleId)
+            ->first();
+
+        if (! $role && ($legacy = $this->legacyApprovalRoleCode($approvalRoleId))) {
+            $role = ApprovalRole::where('code', $legacy)->first();
+        }
+
+        if (! $role || $role->resolution_type !== 'supervisor') {
+            return false;
+        }
+
+        return ! $employee->reportingLines()
+            ->where('relationship_type', 'primary')
+            ->where('effective_from', '<=', now()->toDateString())
+            ->where(function ($q) {
+                $q->whereNull('effective_to')->orWhere('effective_to', '>=', now()->toDateString());
+            })
+            ->exists();
+    }
+
+    /** A step is the final-authority step when its approval role says so. */
+    protected function isFinalAuthorityStep(WorkflowStep $step): bool
+    {
+        $code = $step->approvalRole?->code;
+
+        if ($code !== null) {
+            return $code === 'final_authority';
+        }
+
+        // Legacy definitions have no approval_role_id; preserve their behaviour.
+        return $step->role_required === 'FINAL_AUTHORITY';
     }
 
     /**

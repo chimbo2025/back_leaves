@@ -166,4 +166,15 @@ class LeaveRequestPolicy
             ->where('assigned_employee_id', $employeeId)
             ->exists();
     }
+
+    /**
+     * Permanent deletion. The dedicated code is the authority; visibility is
+     * kept as a second gate so a force-delete holder cannot remove a request
+     * they would not otherwise be allowed to read.
+     */
+    public function forceDelete(User $user, LeaveRequest $request): bool
+    {
+        return $this->permissions->can($user, 'leave_requests', 'force_delete')
+            && $this->view($user, $request);
+    }
 }

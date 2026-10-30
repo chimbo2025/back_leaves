@@ -84,10 +84,12 @@ it('enumerates the final authority profile instead of granting a wildcard', func
     // code in the catalog (planned codes are held on paper for the "every
     // code has a holder" invariant but never resolve, by construction).
     // Nothing invented, nothing withheld. No sentinel silently absorbs codes.
-    // (93 since 2026_10_16_120000 pruned leave_documents.verify_public — the
-    // frontend-only QR signal whose verification page no longer exists.)
+    // (95 since the organization refactor retired the decorative division/unit
+    // permission family — division and unit CRUD gate on admin.* now; the
+    // earlier baseline was 107 with those codes, 93 after
+    // 2026_10_16_120000 pruned leave_documents.verify_public.)
     expect($codes)->not->toContain('*')
-        ->and($codes)->toHaveCount(93);
+        ->and($codes)->toHaveCount(95);
 
     // Organisation-wide reach still comes from the explicit cross-zone codes,
     // so it survives the sentinel's removal.

@@ -11,7 +11,7 @@ class PatchUnitRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->permissions->can($this->user(), 'units', 'update') ?? false;
+        return $this->permissions->can($this->user(), 'admin', 'update') ?? false;
     }
 
     public function rules(): array
@@ -20,9 +20,8 @@ class PatchUnitRequest extends FormRequest
         return [
             'code' => ['sometimes', 'nullable', 'string', 'max:191', Rule::unique('departments', 'code')->ignore($id)->where(fn ($q) => $q->where('unit_type', 'independent_unit')->where('is_active', true))],
             'name' => ['sometimes', 'string', 'max:191'],
-            'unit_type' => ['sometimes', 'string', 'in:independent_unit'],
-            'reports_to_unit_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('departments', 'id')->ignore($this->unit?->id)],
-            'parent_department_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'department'))],
+            'name_sw' => ['sometimes', 'nullable', 'string', 'max:191'],
+            'reports_directly_to_leadership' => ['sometimes', 'nullable', 'boolean'],
             'zone_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('zones', 'id')],
             'head_employee_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('employees', 'id')->where(fn ($q) => $q->where('is_active', true), $this->unit?->id)],
             'is_active' => ['sometimes', 'nullable', 'boolean'],

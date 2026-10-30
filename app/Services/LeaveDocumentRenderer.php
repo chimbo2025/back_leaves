@@ -73,12 +73,13 @@ class LeaveDocumentRenderer
         $data['documentReference'] = 'DPP-LEAVE-' . $data['request']->ref;
         $finalAuth = collect($data['approval_snapshot'] ?? [])
             ->firstWhere('role', 'final_authority');
+        $approvedAction = $finalAuth
+            ? collect($finalAuth['actions'] ?? [])->firstWhere('decision', 'approved')
+            : null;
         $data['finalAuthority'] = $finalAuth ? [
             'full_name' => $finalAuth['assignee'],
-            'decision' => collect($finalAuth['actions'] ?? [])
-                ->firstWhere('decision', 'approved')?['decision'] ?? 'approved',
-            'signed_at' => collect($finalAuth['actions'] ?? [])
-                ->firstWhere('decision', 'approved')?['acted_at'],
+            'decision' => $approvedAction['decision'] ?? 'approved',
+            'signed_at' => $approvedAction['acted_at'] ?? null,
         ] : null;
 
         return Blade::render($view, $data);

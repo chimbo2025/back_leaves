@@ -113,7 +113,9 @@ it('exposes the full permission catalog grouped across every module', function (
     // by migration 2026_10_03_120000 because no endpoint or policy ever read them.
     // leave_documents.verify_public followed via 2026_10_16_120000: its QR
     // verification page was deleted as dead code, leaving the code decorative.
-    expect($catalog)->toHaveCount(106);
+    // The organization refactor added the two force-delete capabilities, which
+    // live in their own `leave_requests` and `employees` modules.
+    expect($catalog)->toHaveCount(108);
     expect(collect($catalog)->pluck('module')->unique()->sort()->values()->all())
         ->toBe([
             'admin',
@@ -122,9 +124,11 @@ it('exposes the full permission catalog grouped across every module', function (
             'case_handovers',
             'delegations',
             'documents',
+            'employees',
             'leave_documents',
             'leave_payments',
             'leave_plans',
+            'leave_requests',
             'leave_returns',
             'leave_waivers',
             'notifications',

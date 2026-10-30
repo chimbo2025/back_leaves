@@ -9,11 +9,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WorkflowStep extends Model
 {
     protected $fillable = [
-        'workflow_def_id', 'step_order', 'approval_role_id', 'role_required', 'sla_days', 'is_mandatory', 'escalation_after_sla', 'note',
+        'workflow_def_id', 'step_order', 'approval_role_id', 'fallback_approval_role_id', 'role_required',
+        'sla_days', 'is_mandatory', 'allow_same_person_as_previous_steps', 'conditions', 'escalation_after_sla', 'note',
     ];
 
     protected $casts = [
         'is_mandatory' => 'boolean',
+        'allow_same_person_as_previous_steps' => 'boolean',
+        'conditions' => 'array',
         'escalation_after_sla' => 'boolean',
     ];
 

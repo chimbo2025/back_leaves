@@ -18,8 +18,11 @@ class StoreEmployeeRequest extends FormRequest
             'full_name' => ['required', 'string', 'max:120'],
             'initials' => ['nullable', 'string', 'max:8'],
             'payroll_no' => ['nullable', 'string', 'max:40', Rule::unique('employees', 'payroll_no')],
-            'position_id' => ['required', Rule::exists('positions', 'id')],
+            'position_id' => ['nullable', Rule::exists('positions', 'id')],
             'department_id' => ['required', Rule::exists('departments', 'id')],
+            // Divisions/units are placement only; they never scope a workflow.
+            'division_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'division'))],
+            'unit_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'independent_unit'))],
             'zone_id' => ['required', Rule::exists('zones', 'id')],
             'gender' => ['nullable', Rule::in(['M', 'F'])],
             'email' => ['required', 'email', 'max:120', Rule::unique('users', 'email')],

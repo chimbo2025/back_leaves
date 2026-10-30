@@ -16,7 +16,7 @@ class Employee extends Model
 
     protected $fillable = [
         'id', 'user_id', 'payroll_no', 'full_name', 'initials', 'position_id', 'department_id',
-        'zone_id', 'gender', 'email', 'hire_date', 'is_active',
+        'division_id', 'unit_id', 'zone_id', 'gender', 'email', 'hire_date', 'is_active',
     ];
 
     protected function casts(): array
@@ -40,6 +40,18 @@ class Employee extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /** Organizational placement only — never a workflow scope. */
+    public function division(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'division_id');
+    }
+
+    /** Organizational placement only — never a workflow scope. */
+    public function unit(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'unit_id');
     }
 
     public function zone(): BelongsTo

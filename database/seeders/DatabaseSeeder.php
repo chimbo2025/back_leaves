@@ -8,6 +8,7 @@ use App\Models\CaseHandover;
 use App\Models\Delegation;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeApprovalRole;
 use App\Models\EmployeeRole;
 use App\Models\LeaveDocument;
 use App\Models\LeavePolicy;
@@ -16,7 +17,6 @@ use App\Models\LeaveType;
 use App\Models\Notification;
 use App\Models\Permission;
 use App\Models\Position;
-use App\Models\PositionDefaultRole;
 use App\Models\ProsecutionCase;
 use App\Models\ReportingLine;
 use App\Models\Role;
@@ -27,7 +27,6 @@ use App\Models\WorkflowStep;
 use App\Models\Zone;
 use App\Services\AuditService;
 use App\Services\WorkflowResolver;
-use DatabaseSeeders\ApprovalRoleSeeder;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -54,10 +53,11 @@ class DatabaseSeeder extends Seeder
         $this->seedRoles();
         $this->seedPermissions();
         $this->seedRolePermissions();
-        $this->seedPositionDefaultRoles();
+        $this->seedApprovalRoles();
         $this->seedEmployees();
         $this->seedReportingLines();
         $this->seedEmployeeRoles();
+        $this->seedEmployeeApprovalRoles();
         $this->seedWorkflows();
         $this->seedDelegations();
         $this->seedRequests($audit);
@@ -77,7 +77,7 @@ class DatabaseSeeder extends Seeder
         }
 
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        foreach (['report_exports', 'official_leave_letters', 'approval_signatures', 'leave_payment_cases', 'notification_deliveries', 'notification_preferences', 'audit_logs', 'notifications', 'case_handovers', 'cases', 'delegations', 'approval_actions', 'workflow_assignments', 'leave_request_dates', 'leave_returns', 'leave_documents', 'leave_requests', 'leave_plan_options', 'leave_plans', 'balance_transactions', 'leave_waivers', 'workflow_steps', 'workflow_definitions', 'employee_roles', 'reporting_lines', 'position_default_roles', 'role_permissions', 'permissions', 'roles', 'leave_policies', 'leave_types', 'employees', 'users', 'positions', 'departments', 'zones', 'personal_access_tokens'] as $table) {
+        foreach (['report_exports', 'official_leave_letters', 'approval_signatures', 'leave_payment_cases', 'notification_deliveries', 'notification_preferences', 'audit_logs', 'notifications', 'case_handovers', 'cases', 'delegations', 'approval_actions', 'workflow_assignments', 'leave_request_dates', 'leave_returns', 'leave_documents', 'leave_requests', 'leave_plan_options', 'leave_plans', 'balance_transactions', 'leave_waivers', 'workflow_steps', 'workflow_definitions', 'employee_approval_roles', 'approval_roles', 'employee_roles', 'reporting_lines', 'position_default_roles', 'role_permissions', 'permissions', 'roles', 'leave_policies', 'leave_types', 'employees', 'users', 'positions', 'departments', 'zones', 'personal_access_tokens'] as $table) {
             DB::table($table)->truncate();
         }
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
@@ -115,22 +115,24 @@ class DatabaseSeeder extends Seeder
 
     protected function seedPositions(): void
     {
+        // Positions are job titles only: no approval tier, no final-authority
+        // flag and no default roles. Authority comes from employee_roles.
         $rows = [
-            ['id' => 'p1', 'title' => 'Director of Public Prosecutions', 'department_id' => 'd2', 'tier' => 5, 'is_final_authority' => true],
-            ['id' => 'p2', 'title' => 'Deputy Director of Public Prosecutions', 'department_id' => 'd2', 'tier' => 4],
-            ['id' => 'p3', 'title' => 'Director, Administration & Human Resources', 'department_id' => 'd1', 'tier' => 4],
-            ['id' => 'p4', 'title' => 'Zonal / Regional Head', 'department_id' => 'd4', 'tier' => 4],
-            ['id' => 'p5', 'title' => 'Head of Prosecutions', 'department_id' => 'd2', 'tier' => 3],
-            ['id' => 'p6', 'title' => 'Senior State Attorney', 'department_id' => 'd2', 'tier' => 2],
-            ['id' => 'p7', 'title' => 'State Attorney I', 'department_id' => 'd2', 'tier' => 1],
-            ['id' => 'p8', 'title' => 'State Attorney II', 'department_id' => 'd2', 'tier' => 1],
-            ['id' => 'p9', 'title' => 'Human Resources Officer', 'department_id' => 'd1', 'tier' => 1],
-            ['id' => 'p10', 'title' => 'ICT Officer', 'department_id' => 'd6', 'tier' => 1],
-            ['id' => 'p11', 'title' => 'Records Officer', 'department_id' => 'd7', 'tier' => 1],
-            ['id' => 'p12', 'title' => 'Executive Assistant', 'department_id' => 'd1', 'tier' => 1],
+            ['id' => 'p1', 'code' => 'director_public_prosecutions', 'title' => 'Director of Public Prosecutions', 'department_id' => 'd2'],
+            ['id' => 'p2', 'code' => 'deputy_director_public_prosecutions', 'title' => 'Deputy Director of Public Prosecutions', 'department_id' => 'd2'],
+            ['id' => 'p3', 'code' => 'director_administration_hr', 'title' => 'Director, Administration & Human Resources', 'department_id' => 'd1'],
+            ['id' => 'p4', 'code' => 'zonal_regional_head', 'title' => 'Zonal / Regional Head', 'department_id' => 'd4'],
+            ['id' => 'p5', 'code' => 'head_of_prosecutions', 'title' => 'Head of Prosecutions', 'department_id' => 'd2'],
+            ['id' => 'p6', 'code' => 'senior_state_attorney', 'title' => 'Senior State Attorney', 'department_id' => 'd2'],
+            ['id' => 'p7', 'code' => 'state_attorney_i', 'title' => 'State Attorney I', 'department_id' => 'd2'],
+            ['id' => 'p8', 'code' => 'state_attorney_ii', 'title' => 'State Attorney II', 'department_id' => 'd2'],
+            ['id' => 'p9', 'code' => 'human_resources_officer', 'title' => 'Human Resources Officer', 'department_id' => 'd1'],
+            ['id' => 'p10', 'code' => 'ict_officer', 'title' => 'ICT Officer', 'department_id' => 'd6'],
+            ['id' => 'p11', 'code' => 'records_officer', 'title' => 'Records Officer', 'department_id' => 'd7'],
+            ['id' => 'p12', 'code' => 'executive_assistant', 'title' => 'Executive Assistant', 'department_id' => 'd1'],
         ];
         foreach ($rows as $row) {
-            Position::create($row);
+            Position::create($row + ['is_active' => true]);
         }
     }
 
@@ -259,7 +261,7 @@ class DatabaseSeeder extends Seeder
             'SUPERVISOR' => ['requests' => ['view', 'create', 'approve', 'view_own', 'edit_own', 'submit', 'withdraw', 'reject', 'return'], 'policies' => ['view'], 'documents' => ['view'], 'staff' => ['view_own'], 'delegations' => ['view', 'create', 'update'], 'reports' => ['view'], 'approval_workflows' => ['view'], 'case_handovers' => ['view', 'create', 'accept', 'reject', 'complete'], 'leave_documents' => ['view_own', 'download_own']],
             'DEPT_HEAD' => ['requests' => ['view', 'approve', 'view_own', 'edit_own', 'submit', 'withdraw', 'reject', 'return'], 'delegations' => ['view', 'create', 'update'], 'staff' => ['view_own'], 'reports' => ['view', 'view_department'], 'approval_workflows' => ['view'], 'case_handovers' => ['view', 'create', 'accept', 'reject', 'complete'], 'leave_plans' => ['view_department', 'confirm_department'], 'leave_waivers' => ['view_department', 'review', 'reject'], 'leave_returns' => ['view_department', 'review', 'excuse', 'apply_deduction', 'close'], 'leave_documents' => ['view_own', 'download_own']],
             'ZONAL_HEAD' => ['requests' => ['view', 'approve', 'approve_zone', 'view_own', 'edit_own', 'submit', 'withdraw', 'reject', 'return'], 'delegations' => ['view', 'create', 'update'], 'staff' => ['view_own'], 'reports' => ['view', 'view_zone'], 'approval_workflows' => ['view'], 'case_handovers' => ['view', 'create', 'accept', 'reject', 'complete'], 'leave_plans' => ['view_zone', 'confirm_zone'], 'leave_waivers' => ['view_zone', 'review', 'reject'], 'leave_returns' => ['view_zone', 'review', 'excuse', 'apply_deduction', 'close'], 'leave_documents' => ['view_own', 'download_own']],
-            'HR' => ['requests' => ['view', 'create', 'approve', 'approve_zone', 'view_cross_zone', 'view_own', 'edit_own', 'submit', 'withdraw', 'reject', 'return'], 'policies' => ['view', 'create', 'edit_policy'], 'documents' => ['view', 'create', 'delete', 'view_medical_documents'], 'staff' => ['view_cross_zone', 'view_own'], 'delegations' => ['view', 'create', 'update'], 'reports' => ['view', 'view_gender_reports', 'view_cross_zone', 'view_own', 'view_department', 'view_zone', 'view_organisation', 'export', 'view_audit', 'view_financial', 'view_sensitive'], 'admin' => ['view', 'create', 'update', 'delete'], 'approval_workflows' => ['view', 'create', 'update'], 'case_handovers' => ['view', 'create', 'accept', 'reject', 'complete'], 'leave_plans' => ['view_own', 'create_own', 'select_own', 'view_department', 'view_zone', 'view_cross_zone', 'confirm_department', 'confirm_zone'], 'leave_waivers' => ['create_own', 'view_own', 'review', 'approve', 'reject', 'view_department', 'view_zone', 'view_cross_zone'], 'leave_returns' => ['report_own', 'view_own', 'view_department', 'view_zone', 'view_cross_zone', 'review', 'excuse', 'apply_deduction', 'close'], 'leave_payments' => ['view_own', 'view_department', 'view_zone', 'view_cross_zone', 'create', 'review', 'approve', 'reject', 'cancel'], 'leave_documents' => ['view_own', 'download_own', 'download_hr', 'generate', 'revoke'], 'notifications' => ['view_own', 'manage_preferences', 'view_sensitive'], 'report_exports' => ['download', 'cancel']],
+            'HR' => ['requests' => ['view', 'create', 'approve', 'approve_zone', 'view_cross_zone', 'view_own', 'edit_own', 'submit', 'withdraw', 'reject', 'return'], 'policies' => ['view', 'create', 'edit_policy'], 'documents' => ['view', 'create', 'delete', 'view_medical_documents'], 'staff' => ['view_cross_zone', 'view_own'], 'delegations' => ['view', 'create', 'update'], 'reports' => ['view', 'view_gender_reports', 'view_cross_zone', 'view_own', 'view_department', 'view_zone', 'view_organisation', 'export', 'view_audit', 'view_financial', 'view_sensitive'], 'admin' => ['view', 'create', 'update', 'delete'], 'approval_workflows' => ['view', 'create', 'update'], 'case_handovers' => ['view', 'create', 'accept', 'reject', 'complete'], 'leave_plans' => ['view_own', 'create_own', 'select_own', 'view_department', 'view_zone', 'view_cross_zone', 'confirm_department', 'confirm_zone'], 'leave_waivers' => ['create_own', 'view_own', 'review', 'approve', 'reject', 'view_department', 'view_zone', 'view_cross_zone'], 'leave_returns' => ['report_own', 'view_own', 'view_department', 'view_zone', 'view_cross_zone', 'review', 'excuse', 'apply_deduction', 'close'], 'leave_payments' => ['view_own', 'view_department', 'view_zone', 'view_cross_zone', 'create', 'review', 'approve', 'reject', 'cancel'], 'leave_documents' => ['view_own', 'download_own', 'download_hr', 'generate', 'revoke'], 'notifications' => ['view_own', 'manage_preferences', 'view_sensitive'], 'report_exports' => ['download', 'cancel'], 'leave_requests' => ['force_delete'], 'employees' => ['force_delete']],
             'FINAL_AUTHORITY' => ['requests' => ['view', 'approve', 'view_cross_zone'], 'reports' => ['view', 'view_gender_reports', 'view_cross_zone'], 'staff' => ['view_cross_zone']],
         ];
 
@@ -279,6 +281,8 @@ class DatabaseSeeder extends Seeder
             'delegations' => ['view', 'create', 'update'],
             'reports' => ['view', 'view_gender_reports', 'view_cross_zone', 'view_own', 'view_department', 'view_zone', 'view_organisation', 'export', 'view_audit', 'view_financial', 'view_sensitive'],
             'admin' => ['view', 'create', 'update', 'delete'],
+            'leave_requests' => ['force_delete'],
+            'employees' => ['force_delete'],
             'approval_workflows' => ['view', 'create', 'update', 'delete', 'activate', 'archive', 'test'],
             'case_handovers' => ['view', 'create', 'accept', 'reject', 'complete', 'cancel'],
             'leave_plans' => ['view_own', 'create_own', 'select_own', 'view_department', 'view_zone', 'view_cross_zone', 'confirm_department', 'confirm_zone'],
@@ -336,22 +340,6 @@ class DatabaseSeeder extends Seeder
     protected function seedRolePermissions(): void
     {
         // handled inside seedPermissions() per-role
-    }
-
-    protected function seedPositionDefaultRoles(): void
-    {
-        // No DEPT_HEAD/ZONAL_HEAD here: structural heads are appointed per
-        // unit (scoped grant), never minted from a position default — an
-        // unscoped head row would resolve to own-records-only anyway.
-        $rows = [
-            ['position_id' => 'p1', 'role_id' => 'FINAL_AUTHORITY'],
-            ['position_id' => 'p3', 'role_id' => 'HR'],
-            ['position_id' => 'p5', 'role_id' => 'SUPERVISOR'],
-            ['position_id' => 'p8', 'role_id' => 'SUPERVISOR'],
-        ];
-        foreach ($rows as $row) {
-            PositionDefaultRole::create($row);
-        }
     }
 
     protected function seedUsers(): void
@@ -461,6 +449,73 @@ class DatabaseSeeder extends Seeder
         }
     }
 
+    /**
+     * Dynamic approval-role catalog.
+     *
+     * The migration 2026_10_29_000007 seeds the same rows so a deployed
+     * database works without re-seeding. firstOrCreate keeps this idempotent
+     * for fresh installs and tests.
+     */
+    protected function seedApprovalRoles(): void
+    {
+        $rows = [
+            ['id' => 'supervisor', 'code' => 'supervisor', 'name' => 'Supervisor', 'resolution_type' => 'supervisor', 'is_system_protected' => true, 'description' => 'Immediate supervisor from the reporting line.'],
+            ['id' => 'department_head', 'code' => 'department_head', 'name' => 'Department Head', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => true, 'description' => 'Head of the employee department.'],
+            ['id' => 'zonal_head', 'code' => 'zonal_head', 'name' => 'Zonal Head', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => true, 'description' => 'Zone / regional head for offices outside HQ.'],
+            ['id' => 'unit_head', 'code' => 'unit_head', 'name' => 'Unit Head', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => false, 'description' => 'Head of an organizational unit.'],
+            ['id' => 'division_head', 'code' => 'division_head', 'name' => 'Division Head', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => false, 'description' => 'Head of a division within a department.'],
+            ['id' => 'hr_reviewer', 'code' => 'hr_reviewer', 'name' => 'HR Reviewer', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => true, 'description' => 'Verifies policy compliance and leave balance.'],
+            ['id' => 'hr_recorder', 'code' => 'hr_recorder', 'name' => 'HR Recorder', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => false, 'description' => 'Records documentation without approval authority.'],
+            ['id' => 'deputy_dpp', 'code' => 'deputy_dpp', 'name' => 'Deputy DPP', 'resolution_type' => 'both', 'is_system_protected' => false, 'description' => 'Deputy Director of Public Prosecutions.'],
+            ['id' => 'final_authority', 'code' => 'final_authority', 'name' => 'Final Authority', 'resolution_type' => 'both', 'is_system_protected' => true, 'description' => 'Final sign-off — DPP authority.'],
+            ['id' => 'accounting_reviewer', 'code' => 'accounting_reviewer', 'name' => 'Accounting Reviewer', 'resolution_type' => 'employee_approval_roles', 'is_system_protected' => false, 'description' => 'Reviews and processes leave-payment settlements.'],
+        ];
+
+        foreach ($rows as $row) {
+            ApprovalRole::firstOrCreate(['id' => $row['id']], $row + ['is_active' => true]);
+        }
+    }
+
+    /**
+     * Mirror the seeded legacy role grants into the dynamic catalog.
+     *
+     * employee_roles remains the permission matrix; employee_approval_roles
+     * answers "who stands in this workflow step". Keeping the two in step for
+     * the seeded staff is what lets the resolver replace hard-coded role
+     * strings immediately after upgrade.
+     */
+    protected function seedEmployeeApprovalRoles(): void
+    {
+        $map = [
+            'FINAL_AUTHORITY' => 'final_authority',
+            'HR' => 'hr_reviewer',
+            'DEPT_HEAD' => 'department_head',
+            'ZONAL_HEAD' => 'zonal_head',
+            'SUPERVISOR' => 'supervisor',
+        ];
+
+        foreach (EmployeeRole::whereIn('role_id', array_keys($map))->get() as $grant) {
+            $code = $map[$grant->role_id];
+            $scope = $grant->department_id ?? $grant->scope_zone_id ?? 'global';
+
+            EmployeeApprovalRole::firstOrCreate(
+                [
+                    'employee_id' => $grant->employee_id,
+                    'approval_role_id' => $code,
+                    'organizational_unit_id' => $grant->department_id,
+                    'zone_id' => $grant->scope_zone_id,
+                ],
+                [
+                    'id' => "ear_{$grant->employee_id}_{$code}_{$scope}",
+                    'is_primary' => false,
+                    'effective_from' => $grant->effective_from ?? '2020-01-01',
+                    'effective_to' => $grant->effective_to,
+                    'source' => $grant->source ?? 'migrated',
+                ]
+            );
+        }
+    }
+
     protected function seedWorkflows(): void
     {
         $defs = [
@@ -527,10 +582,18 @@ class DatabaseSeeder extends Seeder
             'SUPERVISOR' => 'supervisor',
             'DEPT_HEAD' => 'department_head',
             'ZONAL_HEAD' => 'zonal_head',
+            'UNIT_HEAD' => 'unit_head',
+            'DIVISION_HEAD' => 'division_head',
             'HR' => 'hr_reviewer',
+            'HR_RECORDER' => 'hr_recorder',
+            'DEPUTY_DPP' => 'deputy_dpp',
             'FINAL_AUTHORITY' => 'final_authority',
+            'ACCOUNTING' => 'accounting_reviewer',
         ];
-        return $codeMap[$legacyCode] ?? null;
+
+        // Workflow definitions are authored with approval-role codes while the
+        // legacy fixtures use role codes; accept either spelling.
+        return $codeMap[strtoupper($legacyCode)] ?? $legacyCode;
     }
 
     /** Map approval role codes back to legacy role names for FK compliance. */
@@ -576,12 +639,14 @@ class DatabaseSeeder extends Seeder
         // moves. del5 below is the expired fixture; del3 stays scheduled.
         Delegation::create([
             'id' => 'del1', 'delegator_employee_id' => 'e6', 'delegate_employee_id' => 'e7',
-            'role_id' => 'DEPT_HEAD', 'start_date' => '2026-09-05', 'end_date' => '2030-12-31',
+            'role_id' => 'DEPT_HEAD', 'approval_role_id' => 'department_head',
+            'start_date' => '2026-09-05', 'end_date' => '2030-12-31',
             'authorized_by' => 'e1', 'active' => true,
         ]);
         Delegation::create([
             'id' => 'del2', 'delegator_employee_id' => 'e5', 'delegate_employee_id' => 'e9',
-            'role_id' => 'ZONAL_HEAD', 'start_date' => '2026-08-01', 'end_date' => '2026-09-20',
+            'role_id' => 'ZONAL_HEAD', 'approval_role_id' => 'zonal_head',
+            'start_date' => '2026-08-01', 'end_date' => '2026-09-20',
             'authorized_by' => 'e1', 'active' => true,
         ]);
         // e3 (HR) delegation is scheduled far in the future so the list shows
@@ -590,18 +655,21 @@ class DatabaseSeeder extends Seeder
         // calendar moves and rewrite every HR chain.
         Delegation::create([
             'id' => 'del3', 'delegator_employee_id' => 'e3', 'delegate_employee_id' => 'e2',
-            'role_id' => 'HR', 'start_date' => '2031-12-14', 'end_date' => '2031-12-24',
+            'role_id' => 'HR', 'approval_role_id' => 'hr_reviewer',
+            'start_date' => '2031-12-14', 'end_date' => '2031-12-24',
             'authorized_by' => 'e1', 'active' => true,
         ]);
         Delegation::create([
             'id' => 'del4', 'delegator_employee_id' => 'e4', 'delegate_employee_id' => 'e8',
-            'role_id' => 'ZONAL_HEAD', 'start_date' => '2026-09-01', 'end_date' => '2030-12-31',
+            'role_id' => 'ZONAL_HEAD', 'approval_role_id' => 'zonal_head',
+            'start_date' => '2026-09-01', 'end_date' => '2030-12-31',
             'authorized_by' => 'e1', 'active' => true,
         ]);
-        // Expired — shows the revoke/toggle state in the delegations view.
+        // Expired - shows the revoke/toggle state in the delegations view.
         Delegation::create([
             'id' => 'del5', 'delegator_employee_id' => 'e6', 'delegate_employee_id' => 'e2',
-            'role_id' => 'DEPT_HEAD', 'start_date' => '2026-07-01', 'end_date' => '2026-08-15',
+            'role_id' => 'DEPT_HEAD', 'approval_role_id' => 'department_head',
+            'start_date' => '2026-07-01', 'end_date' => '2026-08-15',
             'authorized_by' => 'e1', 'active' => false,
         ]);
     }
@@ -696,6 +764,11 @@ class DatabaseSeeder extends Seeder
             $skipRemaining = in_array($row['status'], ['rejected', 'returned_for_correction'], true);
 
             foreach ($chain as $i => $entry) {
+                // Informational entries (collapsed duplicate / skipped optional)
+                // carry no assignee and are never persisted as assignments.
+                if (empty($entry['assignee_id'])) {
+                    continue;
+                }
                 $isDone = isset($actions[$i]);
                 $assignment = WorkflowAssignment::create([
                     'request_id' => $request->id,

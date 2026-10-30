@@ -16,7 +16,7 @@ use App\Models\EmployeeRole;
  *    list could never be saved by anyone who could not themselves grant
  *    FINAL_AUTHORITY — the DPP's own profile was unsavable.
  */
-it('serialises position default_roles as a flat id array', function () {
+it('serialises positions as job titles without approval-authority fields', function () {
     $admin = apiLogin('u1');
 
     $positions = $this->getJson('/api/org/positions', ['Authorization' => "Bearer {$admin}"])
@@ -26,38 +26,37 @@ it('serialises position default_roles as a flat id array', function () {
     $p1 = collect($positions)->firstWhere('id', 'p1');
 
     expect($p1)->not->toBeNull()
-        ->and($p1['default_roles'])->toBe(['FINAL_AUTHORITY']);
+        ->and($p1['title'])->toBe('Director of Public Prosecutions')
+        ->and($p1)->not->toHaveKey('default_roles')
+        ->and($p1)->not->toHaveKey('tier')
+        ->and($p1)->not->toHaveKey('is_final_authority');
 });
 
-it('round-trips default_role_ids as strings on position update and create', function () {
+it('creates and updates positions as plain job titles', function () {
     $admin = apiLogin('u1');
 
     $updated = $this->patchJson('/api/org/positions/p1', [
-        'default_role_ids' => ['HR'],
+        'title' => 'Director of Public Prosecutions',
+        'title_sw' => 'Mkurugenzi wa Mashtaka ya Umma',
     ], ['Authorization' => "Bearer {$admin}"])
         ->assertOk()
         ->json('data');
 
-    expect($updated['default_roles'])->toBe(['HR']);
-
-    // The list endpoint must agree with the update response: that is what the
-    // edit dialog drafts from.
-    $positions = $this->getJson('/api/org/positions', ['Authorization' => "Bearer {$admin}"])
-        ->json('data');
-
-    expect(collect($positions)->firstWhere('id', 'p1')['default_roles'])->toBe(['HR']);
+    expect($updated['title_sw'])->toBe('Mkurugenzi wa Mashtaka ya Umma')
+        ->and($updated)->not->toHaveKey('default_roles');
 
     $created = $this->postJson('/api/org/positions', [
         'title' => 'Deputy DPP',
         'department_id' => 'd1',
         'zone_id' => 'z1',
-        'tier' => 2,
-        'default_role_ids' => ['SUPERVISOR'],
     ], ['Authorization' => "Bearer {$admin}"])
         ->assertStatus(201)
         ->json('data');
 
-    expect($created['default_roles'])->toBe(['SUPERVISOR']);
+    expect($created['title'])->toBe('Deputy DPP')
+        ->and($created)->not->toHaveKey('default_roles');
+
+    $this->assertDatabaseMissing('position_default_roles', ['position_id' => $created['id']]);
 });
 
 it('lets a profile be re-saved with the roles the employee already holds', function () {

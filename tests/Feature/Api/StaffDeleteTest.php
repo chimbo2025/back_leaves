@@ -4,12 +4,11 @@ use App\Models\Employee;
 use Illuminate\Support\Facades\DB;
 
 /**
- * DELETE /org/employees/{id} — permanent staff removal next to activate /
- * deactivate. Guards (in order): own record, head appointment, own leave
- * history, appearance in approval/handover history. Everything else — login,
- * role grants, delegations, notifications — goes with the employee.
+ * Force-delete staff. Linked leave history and structural appointments do not
+ * block deletion; the operation is reasoned and audited. Self-delete remains
+ * forbidden so an administrator cannot orphan their own account.
  */
-it('deletes history-free staff and disables their login with them', function () {
+it('force deletes an employee and audits the reason', function () {
     $admin = apiLogin('u1');
 
     $staff = $this->postJson('/api/org/employees', [
@@ -18,71 +17,75 @@ it('deletes history-free staff and disables their login with them', function () 
         'department_id' => DB::table('departments')->value('id'),
         'zone_id' => DB::table('zones')->value('id'),
         'hire_date' => '2026-01-05',
+        'email' => 'scratch.staff@example.test',
         'username' => 'scratch.staff',
-        'password' => 'password',
+        'password' => 'Password123',
     ], ['Authorization' => "Bearer {$admin}"])->assertCreated()->json('data');
 
-    $this->deleteJson("/api/org/employees/{$staff['id']}", [], ['Authorization' => "Bearer {$admin}"])
+    $this->deleteJson("/api/org/employees/{$staff['id']}", [
+        'reason' => 'Termination cleanup.',
+    ], ['Authorization' => "Bearer {$admin}"])
         ->assertOk()
-        ->assertJsonPath('message', 'Staff member deleted.');
+        ->assertJsonPath('message', 'Staff member permanently deleted.');
 
     expect(Employee::find($staff['id']))->toBeNull();
-
-    // The login must not outlive the employee (the API answers 422).
-    $this->postJson('/api/login', ['username' => 'scratch.staff', 'password' => 'password'])
+    $this->postJson('/api/login', ['username' => 'scratch.staff', 'password' => 'Password123'])
         ->assertStatus(422);
 
-    // Deletion is audited with a full snapshot of what was removed.
     $this->assertDatabaseHas('audit_logs', [
         'entity_type' => 'employee',
         'entity_id' => $staff['id'],
-        'action' => 'delete',
+        'action' => 'employee_force_deleted',
+        'actor_user_id' => 'u1',
+        'reason' => 'Termination cleanup.',
     ]);
 });
 
-it('refuses deleting your own staff record', function () {
+it('requires a reason and refuses unauthorized or self force-deletes', function () {
     $admin = apiLogin('u1');
+    $low = apiLogin('u7');
 
-    $this->deleteJson('/api/org/employees/e1', [], ['Authorization' => "Bearer {$admin}"])
+    $this->deleteJson('/api/org/employees/e2', [], ['Authorization' => "Bearer {$admin}"])
         ->assertStatus(422)
-        ->assertJsonPath('message', 'You cannot delete your own staff record — ask another administrator.');
+        ->assertJsonValidationErrors('reason');
+
+    $this->deleteJson('/api/org/employees/e2', ['reason' => 'Unauthorized cleanup.'], ['Authorization' => "Bearer {$low}"])
+        ->assertStatus(403);
+
+    $this->deleteJson('/api/org/employees/e1', ['reason' => 'Self cleanup.'], ['Authorization' => "Bearer {$admin}"])
+        ->assertStatus(403);
 
     expect(Employee::find('e1'))->not->toBeNull();
 });
 
-it('refuses a unit head until the appointment is cleared, then deletes', function () {
+it('deletes a structural head without requiring a separate unappointment', function () {
     $admin = apiLogin('u1');
     $department = (string) DB::table('departments')->value('id');
 
     $staff = $this->postJson('/api/org/employees', [
-        'full_name' => 'Soon-To-Be Head',
+        'full_name' => 'Soon-To-Be Deleted Head',
         'position_id' => DB::table('positions')->value('id'),
         'department_id' => $department,
         'zone_id' => DB::table('zones')->value('id'),
         'hire_date' => '2026-02-02',
-        'username' => 'soon.head',
-        'password' => 'password',
+        'email' => 'soon.deleted.head@example.test',
+        'username' => 'soon.deleted.head',
+        'password' => 'Password123',
     ], ['Authorization' => "Bearer {$admin}"])->assertCreated()->json('data');
 
     $this->putJson("/api/org/departments/{$department}/head", [
         'employee_id' => $staff['id'],
     ], ['Authorization' => "Bearer {$admin}"])->assertOk();
 
-    // Head doctrine: a unit never silently loses its head to a directory
-    // delete — the appointment must be cleared explicitly first.
-    $this->deleteJson("/api/org/employees/{$staff['id']}", [], ['Authorization' => "Bearer {$admin}"])
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'They head a department or zone — clear the head appointment first.');
+    $this->deleteJson("/api/org/employees/{$staff['id']}", [
+        'reason' => 'Remove appointed head.',
+    ], ['Authorization' => "Bearer {$admin}"])->assertOk();
 
-    $this->deleteJson("/api/org/departments/{$department}/head", [], ['Authorization' => "Bearer {$admin}"])
-        ->assertOk();
-
-    $this->deleteJson("/api/org/employees/{$staff['id']}", [], ['Authorization' => "Bearer {$admin}"])
-        ->assertOk();
     expect(Employee::find($staff['id']))->toBeNull();
+    $this->assertDatabaseMissing('employee_roles', ['employee_id' => $staff['id']]);
 });
 
-it('refuses deletion when the person has leave requests', function () {
+it('deletes an employee with leave history and associated workflow references', function () {
     $admin = apiLogin('u1');
 
     $staff = $this->postJson('/api/org/employees', [
@@ -91,13 +94,12 @@ it('refuses deletion when the person has leave requests', function () {
         'department_id' => DB::table('departments')->value('id'),
         'zone_id' => DB::table('zones')->value('id'),
         'hire_date' => '2026-03-03',
+        'email' => 'has.history@example.test',
         'username' => 'has.history',
-        'password' => 'password',
+        'password' => 'Password123',
     ], ['Authorization' => "Bearer {$admin}"])->assertCreated()->json('data');
 
-    // The create endpoint always drafts for the ACTOR, so place the history
-    // row directly — the guard counts requests, whatever their origin.
-    DB::table('leave_requests')->insert([
+    $requestId = DB::table('leave_requests')->insertGetId([
         'ref' => 'LVE-SCRATCH-0001',
         'employee_id' => $staff['id'],
         'leave_type_id' => 'lt1',
@@ -109,44 +111,10 @@ it('refuses deletion when the person has leave requests', function () {
         'updated_at' => now(),
     ]);
 
-    $this->deleteJson("/api/org/employees/{$staff['id']}", [], ['Authorization' => "Bearer {$admin}"])
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'They have 1 leave request(s) — history is permanent. Deactivate the record instead.');
+    $this->deleteJson("/api/org/employees/{$staff['id']}", [
+        'reason' => 'Remove employee and linked requests.',
+    ], ['Authorization' => "Bearer {$admin}"])->assertOk();
 
-    expect(Employee::find($staff['id']))->not->toBeNull();
-});
-
-it('refuses deletion when the person appears in approval history', function () {
-    $admin = apiLogin('u1');
-
-    $staff = $this->postJson('/api/org/employees', [
-        'full_name' => 'Was An Approver',
-        'position_id' => DB::table('positions')->value('id'),
-        'department_id' => DB::table('departments')->value('id'),
-        'zone_id' => DB::table('zones')->value('id'),
-        'hire_date' => '2026-04-04',
-        'username' => 'was.approver',
-        'password' => 'password',
-    ], ['Authorization' => "Bearer {$admin}"])->assertCreated()->json('data');
-
-    // Stand them on someone else's chain — approver rows are RESTRICT
-    // foreign keys and the audit trail must keep naming real people.
-    $assignment = DB::table('workflow_assignments')->first();
-    DB::table('workflow_assignments')->where('id', $assignment->id)
-        ->update(['assigned_employee_id' => $staff['id']]);
-
-    $this->deleteJson("/api/org/employees/{$staff['id']}", [], ['Authorization' => "Bearer {$admin}"])
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'They appear in approval or handover history — history is permanent. Deactivate the record instead.');
-
-    expect(Employee::find($staff['id']))->not->toBeNull();
-});
-
-it('refuses employees without admin.delete', function () {
-    $token = apiLogin('u9'); // e9 — SELF_SERVICE floor only
-
-    $this->deleteJson('/api/org/employees/e3', [], ['Authorization' => "Bearer {$token}"])
-        ->assertStatus(403);
-
-    expect(Employee::find('e3'))->not->toBeNull();
+    expect(Employee::find($staff['id']))->toBeNull();
+    $this->assertDatabaseMissing('leave_requests', ['id' => $requestId]);
 });

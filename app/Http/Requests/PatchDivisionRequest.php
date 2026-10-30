@@ -11,7 +11,7 @@ class PatchDivisionRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->permissions->can($this->user(), 'divisions', 'update') ?? false;
+        return $this->permissions->can($this->user(), 'admin', 'update') ?? false;
     }
 
     public function rules(): array
@@ -20,6 +20,7 @@ class PatchDivisionRequest extends FormRequest
             'code' => ['sometimes', 'nullable', 'string', 'max:191', Rule::unique('departments', 'code')->ignore($this->division?->id)->where(fn ($q) => $q->where('unit_type', 'division')->where('is_active', true))],
             'name' => ['sometimes', 'string', 'max:191'],
             'parent_department_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('is_active', true), $this->id)],
+            'reports_directly_to_leadership' => ['sometimes', 'nullable', 'boolean'],
             'zone_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('zones', 'id')],
             'head_employee_id' => ['sometimes', 'nullable', 'string', 'max:191', Rule::exists('employees', 'id')->where(fn ($q) => $q->where('is_active', true), $this->id)],
             'is_active' => ['sometimes', 'nullable', 'boolean'],

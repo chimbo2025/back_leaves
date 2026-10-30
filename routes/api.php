@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\NotificationPreferenceController;
 use App\Http\Controllers\Api\OfficialLetterController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PolicyController;
+use App\Http\Controllers\Api\PermissionAuditController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RequestController;
 use App\Http\Controllers\Api\ReportingLineController;
@@ -42,6 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('zones', [OrganizationController::class, 'zones']);
         Route::get('departments', [OrganizationController::class, 'departments']);
         Route::get('positions', [OrganizationController::class, 'positions']);
+        Route::get('approval-roles', [OrganizationController::class, 'approvalRoles']);
         // Zones and departments are real org units, not fixtures: full CRUD so an
         // admin can correct the structure instead of living with a frozen seed.
         Route::post('zones', [OrganizationController::class, 'storeZone'])->middleware('permission:admin.create');
@@ -59,7 +61,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('employees', [OrganizationController::class, 'employees'])->middleware('permission:staff.view_own');
         Route::post('employees', [OrganizationController::class, 'store'])->middleware('permission:admin.create');
         Route::patch('employees/{employee}', [OrganizationController::class, 'update'])->middleware('permission:admin.update');
-        Route::delete('employees/{employee}', [OrganizationController::class, 'destroy'])->middleware('permission:admin.delete');
+        Route::delete('employees/{employee}', [OrganizationController::class, 'destroy'])
+        ->middleware('permission:employees.force_delete');
         // Single-grant toggles: safe for scoped structural grants, which a full
         // role_ids replacement would silently widen.
         Route::post('employees/{employee}/roles/{role}', [OrganizationController::class, 'grantRole'])->middleware('permission:admin.update');
@@ -77,23 +80,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('employees/{employee}/supervisees', [ReportingLineController::class, 'supervisees'])->middleware('permission:admin.view');
         Route::get('reporting-lines', [ReportingLineController::class, 'all'])->middleware('permission:admin.view');
         // --- Divisions and Independent Units (Part 3 & 4) ---
-        Route::get('divisions', [OrganizationController::class, 'indexDivisions'])->middleware('permission:divisions.view');
-        Route::post('divisions', [OrganizationController::class, 'storeDivision'])->middleware('permission:divisions.create');
-        Route::get('divisions/{division}', [OrganizationController::class, 'showDivision'])->middleware('permission:divisions.view');
-        Route::patch('divisions/{division}', [OrganizationController::class, 'updateDivision'])->middleware('permission:divisions.update');
-        Route::delete('divisions/{division}', [OrganizationController::class, 'destroyDivision'])->middleware('permission:divisions.delete');
-        Route::post('divisions/{division}/head', [OrganizationController::class, 'assignDivisionHead'])->middleware('permission:divisions.assign_head');
-        Route::get('divisions/{division}/employees', [OrganizationController::class, 'getDivisionEmployees'])->middleware('permission:divisions.view_employees');
-        Route::get('divisions/{division}/head', [OrganizationController::class, 'getDivisionHead'])->middleware('permission:divisions.view');
+        Route::get('divisions', [OrganizationController::class, 'indexDivisions'])->middleware('permission:admin.view');
+        Route::post('divisions', [OrganizationController::class, 'storeDivision'])->middleware('permission:admin.create');
+        Route::get('divisions/{division}', [OrganizationController::class, 'showDivision'])->middleware('permission:admin.view');
+        Route::patch('divisions/{division}', [OrganizationController::class, 'updateDivision'])->middleware('permission:admin.update');
+        Route::delete('divisions/{division}', [OrganizationController::class, 'destroyDivision'])->middleware('permission:admin.delete');
+        Route::post('divisions/{division}/head', [OrganizationController::class, 'assignDivisionHead'])->middleware('permission:admin.update');
+        Route::get('divisions/{division}/employees', [OrganizationController::class, 'getDivisionEmployees'])->middleware('permission:admin.view');
+        Route::get('divisions/{division}/head', [OrganizationController::class, 'getDivisionHead'])->middleware('permission:admin.view');
         // Units
-        Route::get('units', [OrganizationController::class, 'indexUnits'])->middleware('permission:units.view');
-        Route::post('units', [OrganizationController::class, 'storeUnit'])->middleware('permission:units.create');
-        Route::get('units/{unit}', [OrganizationController::class, 'showUnit'])->middleware('permission:units.view');
-        Route::patch('units/{unit}', [OrganizationController::class, 'updateUnit'])->middleware('permission:units.update');
-        Route::delete('units/{unit}', [OrganizationController::class, 'destroyUnit'])->middleware('permission:units.delete');
-        Route::post('units/{unit}/head', [OrganizationController::class, 'assignUnitHead'])->middleware('permission:units.assign_head');
-        Route::get('units/{unit}/employees', [OrganizationController::class, 'getUnitEmployees'])->middleware('permission:units.view_employees');
-        Route::get('units/{unit}/head', [OrganizationController::class, 'getUnitHead'])->middleware('permission:units.view');
+        Route::get('units', [OrganizationController::class, 'indexUnits'])->middleware('permission:admin.view');
+        Route::post('units', [OrganizationController::class, 'storeUnit'])->middleware('permission:admin.create');
+        Route::get('units/{unit}', [OrganizationController::class, 'showUnit'])->middleware('permission:admin.view');
+        Route::patch('units/{unit}', [OrganizationController::class, 'updateUnit'])->middleware('permission:admin.update');
+        Route::delete('units/{unit}', [OrganizationController::class, 'destroyUnit'])->middleware('permission:admin.delete');
+        Route::post('units/{unit}/head', [OrganizationController::class, 'assignUnitHead'])->middleware('permission:admin.update');
+        Route::get('units/{unit}/employees', [OrganizationController::class, 'getUnitEmployees'])->middleware('permission:admin.view');
+        Route::get('units/{unit}/head', [OrganizationController::class, 'getUnitHead'])->middleware('permission:admin.view');
     });
 
     // Leave types, policies, balances
@@ -176,6 +179,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // below): deletion is ownership-intrinsic — applicant-only AND
         // draft-only, both enforced in the controller. Submitted requests
         // have no delete route at all.
+        // Force delete: a separate capability from ordinary administration,
+        // requires a reason and preserves documents/payment cases.
+        Route::delete('{leaveRequest}/force', [RequestController::class, 'forceDelete'])
+            ->middleware('permission:leave_requests.force_delete');
         Route::delete('{leaveRequest}', [RequestController::class, 'destroy']);
     })->whereNumber('leaveRequest');
 
@@ -407,6 +414,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('roles')->group(function () {
         Route::get('/', [RoleController::class, 'index'])->middleware('permission:admin.view');
         Route::get('permissions', [RoleController::class, 'permissions'])->middleware('permission:admin.view');
+        // Read-only permission audit (matrix coverage, holders, drift).
+        Route::get('permissions/audit', [PermissionAuditController::class, 'index'])->middleware('permission:admin.view');
         Route::post('/', [RoleController::class, 'store'])->middleware('permission:admin.create');
         Route::match(['put', 'patch'], '{role}', [RoleController::class, 'update'])->middleware('permission:admin.update');
         Route::delete('{role}', [RoleController::class, 'destroy'])->middleware('permission:admin.delete');

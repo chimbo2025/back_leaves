@@ -11,6 +11,7 @@ use App\Http\Requests\StorePositionRequest;
 use App\Http\Requests\StoreUnitRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
 use App\Http\Requests\UpdatePositionRequest;
+use App\Models\ApprovalRole;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\EmployeeRole;
@@ -371,29 +372,27 @@ class OrganizationController extends Controller
         return $this->headPayload($grant);
     }
 
+    /**
+     * Positions are job titles only (organization refactor). They carry no
+     * approval authority: no tier, no final-authority flag, no default roles.
+     */
     public function positions(): JsonResponse
     {
-        $positions = Position::with('defaultRoles')->orderBy('title')->get()
-            ->map(fn (Position $p) => $this->positionPayload($p));
+        $positions = Position::with(['department', 'division', 'unit', 'zone'])
+            ->orderBy('title')
+            ->get();
 
         return response()->json(['data' => $positions]);
     }
 
-    /**
-     * Serialise a position with `default_roles` as a flat id array.
-     *
-     * The eager-loaded `defaultRoles` relation also serialises to the snake
-     * key `default_roles`, and relations overwrite attributes in toArray(),
-     * so the relation must be dropped before setting the attribute —
-     * otherwise the API returns pivot objects and clients PATCH them back
-     * as objects ("The default_role_ids.0 field must be a string.").
-     */
-    protected function positionPayload(Position $position): Position
+    public function approvalRoles(): JsonResponse
     {
-        $ids = $position->defaultRoles->pluck('role_id')->all();
-        $position->unsetRelation('defaultRoles');
+        $roles = ApprovalRole::where('is_active', true)
+            ->orderBy('is_system_protected', 'desc')
+            ->orderBy('name')
+            ->get();
 
-        return $position->setAttribute('default_roles', $ids);
+        return response()->json(['data' => $roles]);
     }
 
     protected function seqId(string $prefix): string
@@ -403,137 +402,191 @@ class OrganizationController extends Controller
         return $prefix[0].($last + 1);
     }
 
-    protected function syncDefaultRoles(string $positionId, ?array $roleIds): void
+    /**
+     * Staff placed in a division/unit. The placement column is authoritative
+     * for the refactor; department_id is still honoured because divisions and
+     * units are departments rows and pre-refactor rows point there.
+     */
+    protected function placedEmployees(string $placementColumn, string $unitId)
     {
-        PositionDefaultRole::where('position_id', $positionId)->delete();
-        foreach (array_unique($roleIds ?? []) as $roleId) {
-            PositionDefaultRole::create(['position_id' => $positionId, 'role_id' => $roleId]);
+        return Employee::where(fn ($q) => $q->where($placementColumn, $unitId)->orWhere('department_id', $unitId));
+    }
+
+    /** A stable, unique code when the client does not supply one. */
+    protected function positionCode(?string $code, string $title): string
+    {
+        if ($code !== null && $code !== '') {
+            return $code;
         }
+
+        $base = strtolower(\Illuminate\Support\Str::slug($title, '_')) ?: 'position';
+        $candidate = $base;
+        $i = 1;
+        while (Position::where('code', $candidate)->exists()) {
+            $candidate = $base.'_'.$i++;
+        }
+
+        return $candidate;
     }
 
     public function storePosition(StorePositionRequest $form): JsonResponse
     {
         $data = $form->validated();
 
-        if ($bad = array_intersect($data['default_role_ids'] ?? [], self::STRUCTURAL_ROLES)) {
-            return response()->json([
-                'message' => 'One or more roles cannot be used as defaults.',
-                'errors' => ['default_role_ids' => array_values($bad)],
-            ], 422);
-        }
-
         $position = Position::create([
             'id' => $this->seqId('positions'),
+            'code' => $this->positionCode($data['code'] ?? null, $data['title']),
             'title' => $data['title'],
+            'title_sw' => $data['title_sw'] ?? null,
             'department_id' => $data['department_id'],
+            'division_id' => $data['division_id'] ?? null,
+            'unit_id' => $data['unit_id'] ?? null,
             'zone_id' => $data['zone_id'] ?? null,
-            'tier' => $data['tier'] ?? 1,
-            'is_final_authority' => $data['is_final_authority'] ?? false,
+            'is_active' => $data['is_active'] ?? true,
         ]);
-        $this->syncDefaultRoles($position->id, $data['default_role_ids'] ?? null);
+
         $this->audit->append('position', (string) $position->id, 'create', $form->user()->id, [
             'title' => $position->title,
             'department_id' => $position->department_id,
+            'division_id' => $position->division_id,
+            'unit_id' => $position->unit_id,
         ]);
 
-        return response()->json(['data' => $this->positionPayload($position->load('defaultRoles'))], 201);
+        return response()->json(['data' => $position->load(['department', 'division', 'unit', 'zone'])], 201);
     }
 
     public function updatePosition(UpdatePositionRequest $form, Position $position): JsonResponse
     {
         $data = $form->validated();
 
-        if ($bad = array_intersect($data['default_role_ids'] ?? [], self::STRUCTURAL_ROLES)) {
-            return response()->json([
-                'message' => 'One or more roles cannot be used as defaults.',
-                'errors' => ['default_role_ids' => array_values($bad)],
-            ], 422);
+        if (array_key_exists('code', $data) && ($data['code'] === null || $data['code'] === '')) {
+            $data['code'] = $this->positionCode(null, $data['title'] ?? $position->title);
         }
 
-        $position->update(collect($data)->forget('default_role_ids')->all());
-        if (array_key_exists('default_role_ids', $data)) {
-            $this->syncDefaultRoles($position->id, $data['default_role_ids']);
-        }
+        $position->update($data);
+
         $this->audit->append('position', (string) $position->id, 'update', $form->user()->id, [
             'title' => $position->title,
+            'department_id' => $position->department_id,
+            'division_id' => $position->division_id,
+            'unit_id' => $position->unit_id,
         ]);
 
-        return response()->json(['data' => $this->positionPayload($position->load('defaultRoles'))]);
+        return response()->json(['data' => $position->fresh(['department', 'division', 'unit', 'zone'])]);
     }
 
-    public function destroyPosition(Position $position): JsonResponse
+    public function destroyPosition(Request $request, Position $position): JsonResponse
     {
-        if (Employee::where('position_id', $position->id)->exists()) {
-            return response()->json(['message' => 'Position is assigned to staff and cannot be deleted.'], 422);
-        }
         $id = $position->id;
         $title = $position->title;
-        PositionDefaultRole::where('position_id', $id)->delete();
-        $position->delete();
-        $this->audit->append('position', $id, 'delete', request()->user()->id, ['title' => $title]);
+        $detachedEmployees = Employee::where('position_id', $id)->count();
 
-        return response()->json(['message' => 'Position deleted.']);
+        DB::transaction(function () use ($request, $position, $id, $title, $detachedEmployees) {
+            // Keep staff records and their other placement data. Removing a
+            // job title only clears the optional title assignment.
+            Employee::where('position_id', $id)->update(['position_id' => null]);
+            PositionDefaultRole::where('position_id', $id)->delete();
+            $position->delete();
+
+            $this->audit->append('position', $id, 'delete', $request->user()->id, [
+                'title' => $title,
+                'detached_employees' => $detachedEmployees,
+            ]);
+        });
+
+        return response()->json([
+            'message' => 'Position deleted; assigned staff were kept with no position assigned.',
+            'detached_employees' => $detachedEmployees,
+        ]);
     }
 
     /**
-     * Permanent staff deletion — a hard remove, next to activate/deactivate.
+     * Permanent staff deletion — the force-delete path.
      *
-     * The guards protect three invariants, in order:
-     *   1. an administrator cannot delete their own record;
-     *   2. head appointments are cleared explicitly (head doctrine: a unit
-     *      never silently loses its head through a directory delete);
-     *   3. anything that participates in history — own leave requests,
-     *      approval actions on OTHER people's requests, handover records,
-     *      assigned cases — is refused with "deactivate instead", because
-     *      those foreign keys are RESTRICT and the audit trail must keep
-     *      naming real people.
+     * Requires employees.force_delete (HR, Final Authority, Break Glass) and a
+     * mandatory reason. Unlike the old delete, this succeeds even when the
+     * employee already has leave history: their requests go with them, but the
+     * evidence and the money do not.
      *
-     * Everything else cascades: role grants, reporting lines, balances,
-     * delegations, notifications, plans — and the linked user account is
-     * removed too so the login cannot outlive the employee.
+     * Preserved:
+     *   - leave_documents: detached (request_id = NULL) before the requests go;
+     *   - leave_payment_cases: detached (employee_id = NULL), including cases
+     *     whose leave_request_id is nulled by the cascade;
+     *   - the audit ledger: an employee_force_deleted entry is written first.
+     *
+     * Cleared (RESTRICT foreign keys that cannot be nulled):
+     *   - workflow assignments and approval actions naming this person;
+     *   - case handovers they proposed/received;
+     *   - court cases assigned to them as prosecutor.
+     *
+     * Guard kept: an administrator cannot delete their own record. Scoped
+     * head appointments are removed with the employee, and their details are
+     * captured in the audit event so the operation is not blocked by them.
      */
     public function destroy(Request $request, Employee $employee): JsonResponse
     {
+        $this->authorize('forceDelete', $employee);
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
         if ($employee->id === $request->user()->employee?->id) {
             return response()->json(['message' => 'You cannot delete your own staff record — ask another administrator.'], 422);
         }
 
-        $headsHead = EmployeeRole::where('employee_id', $employee->id)
-            ->whereIn('role_id', self::STRUCTURAL_ROLES)
-            ->where(fn ($q) => $q->whereNotNull('department_id')->orWhereNotNull('scope_zone_id'))
-            ->exists();
-        if ($headsHead) {
-            return response()->json(['message' => 'They head a department or zone — clear the head appointment first.'], 422);
-        }
-
-        $ownRequests = LeaveRequest::where('employee_id', $employee->id)->count();
-        if ($ownRequests > 0) {
-            return response()->json(['message' => "They have {$ownRequests} leave request(s) — history is permanent. Deactivate the record instead."], 422);
-        }
-
-        $inHistory = DB::table('workflow_assignments')->where('assigned_employee_id', $employee->id)->exists()
-            || DB::table('approval_actions')->where('actor_employee_id', $employee->id)->exists()
-            || DB::table('case_handovers')
-                ->where(fn ($q) => $q->where('from_employee_id', $employee->id)->orWhere('to_employee_id', $employee->id))
-                ->exists()
-            || DB::table('cases')->where('assigned_prosecutor_id', $employee->id)->exists();
-        if ($inHistory) {
-            return response()->json(['message' => 'They appear in approval or handover history — history is permanent. Deactivate the record instead.'], 422);
-        }
-
         $userId = $employee->user_id;
-        DB::transaction(function () use ($request, $employee, $userId) {
-            $this->audit->append('employee', (string) $employee->id, 'delete', $request->user()->id, [
+        $requestIds = LeaveRequest::where('employee_id', $employee->id)->pluck('id')->all();
+        $roleGrants = EmployeeRole::where('employee_id', $employee->id)
+            ->get(['role_id', 'department_id', 'scope_zone_id'])
+            ->map(fn (EmployeeRole $grant) => [
+                'role_id' => $grant->role_id,
+                'department_id' => $grant->department_id,
+                'zone_id' => $grant->scope_zone_id,
+            ])->all();
+        $detachedDocuments = 0;
+        $detachedPaymentCases = 0;
+
+        DB::transaction(function () use ($request, $employee, $userId, $requestIds, $roleGrants, $data, &$detachedDocuments, &$detachedPaymentCases) {
+            $detachedDocuments = $requestIds === []
+                ? 0
+                : DB::table('leave_documents')->whereIn('request_id', $requestIds)->count();
+            $detachedPaymentCases = DB::table('leave_payment_cases')->where('employee_id', $employee->id)->count();
+
+            $this->audit->append('employee', (string) $employee->id, 'employee_force_deleted', $request->user()->id, [
                 'full_name' => $employee->full_name,
                 'payroll_no' => $employee->payroll_no,
                 'position_id' => $employee->position_id,
                 'department_id' => $employee->department_id,
+                'division_id' => $employee->division_id,
+                'unit_id' => $employee->unit_id,
                 'zone_id' => $employee->zone_id,
-            ]);
+                'role_grants' => $roleGrants,
+                'leave_request_ids' => $requestIds,
+                'detached_documents' => $detachedDocuments,
+                'detached_payment_cases' => $detachedPaymentCases,
+            ], $data['reason']);
 
-            // Cascades: employee_roles, reporting_lines, leave_balances,
+            // Evidence survives its request: detach instead of cascading.
+            if ($requestIds !== []) {
+                DB::table('leave_documents')->whereIn('request_id', $requestIds)->update(['request_id' => null]);
+            }
+
+            // Money survives its employee.
+            DB::table('leave_payment_cases')->where('employee_id', $employee->id)->update(['employee_id' => null]);
+
+            // RESTRICT references that cannot be nulled are cleared first.
+            DB::table('case_handovers')
+                ->where(fn ($q) => $q->where('from_employee_id', $employee->id)->orWhere('to_employee_id', $employee->id))
+                ->delete();
+            DB::table('cases')->where('assigned_prosecutor_id', $employee->id)->delete();
+            DB::table('approval_actions')->where('actor_employee_id', $employee->id)->delete();
+            DB::table('workflow_assignments')->where('assigned_employee_id', $employee->id)->delete();
+
+            // Cascades: own leave requests (with their dates, assignments and
+            // signatures), employee_roles, reporting lines, balances,
             // delegations, notifications, waivers, plans, balance
-            // transactions, leave_returns, leave_payment_cases.
+            // transactions, leave returns, approval-role assignments.
             $employee->delete();
 
             // The login must not outlive the employee. Audit/document FKs
@@ -544,7 +597,12 @@ class OrganizationController extends Controller
             }
         });
 
-        return response()->json(['message' => 'Staff member deleted.']);
+        return response()->json([
+            'message' => 'Staff member permanently deleted.',
+            'id' => $employee->id,
+            'detached_documents' => $detachedDocuments,
+            'detached_payment_cases' => $detachedPaymentCases,
+        ]);
     }
 
     /**
@@ -559,8 +617,10 @@ class OrganizationController extends Controller
     {
         $canSeeSensitive = $this->permissions->can($request->user(), 'admin', 'view');
 
-        $query = Employee::with(['department', 'zone', 'position', 'roles'])
+        $query = Employee::with(['department', 'division', 'unit', 'zone', 'position', 'roles'])
             ->when($request->input('department_id'), fn ($q, $d) => $q->where('department_id', $d))
+            ->when($request->input('division_id'), fn ($q, $d) => $q->where('division_id', $d))
+            ->when($request->input('unit_id'), fn ($q, $u) => $q->where('unit_id', $u))
             ->when($request->input('active'), fn ($q, $a) => $q->where('is_active', true));
 
         $this->accessScope->applyEmployeeScope($query, $request->user());
@@ -714,7 +774,7 @@ class OrganizationController extends Controller
             'full_name' => $employee->full_name,
         ]);
 
-        return response()->json(['data' => $employee->load(['department', 'zone', 'position', 'roles'])
+        return response()->json(['data' => $employee->load(['department', 'division', 'unit', 'zone', 'position', 'roles'])
             ->setAttribute('role_ids', $employee->roles->pluck('id')->unique()->values()->all())
             ->setAttribute('unscoped_role_ids', $employee->unscopedRoleIds())
             ->setAttribute('scoped_grants', $this->scopedGrants($employee))]);
@@ -846,8 +906,11 @@ class OrganizationController extends Controller
 
     /**
      * Register a new staff member from the admin panel: creates the login,
-     * the employee record, default roles (position defaults unless role_ids
-     * given) and the primary reporting line to a supervisor.
+     * the employee record, explicit role grants and the primary reporting line
+     * to a supervisor.
+     *
+     * Positions are job titles only, so they never mint role grants. A new
+     * staff member starts with exactly the roles the admin ticked.
      */
     public function store(StoreEmployeeRequest $form): JsonResponse
     {
@@ -856,11 +919,6 @@ class OrganizationController extends Controller
         // Escalation check before anything is written. Validating after the
         // User and Employee rows existed would leave an orphaned half-created
         // account behind on every rejected request.
-        //
-        // Only explicit role_ids are checked. Position defaults are
-        // org-configured rather than caller-chosen, so they are not an
-        // escalation path; an admin who sets those defaults is governed by the
-        // same admin.create gate as editing any other configuration.
         if (array_key_exists('role_ids', $data)) {
             $refused = [];
 
@@ -908,8 +966,10 @@ class OrganizationController extends Controller
             'payroll_no' => $data['payroll_no'] ?? null,
             'full_name' => $data['full_name'],
             'initials' => $data['initials'] ?? null,
-            'position_id' => $data['position_id'],
+            'position_id' => $data['position_id'] ?? null,
             'department_id' => $data['department_id'],
+            'division_id' => $data['division_id'] ?? null,
+            'unit_id' => $data['unit_id'] ?? null,
             'zone_id' => $data['zone_id'],
             'gender' => $data['gender'] ?? null,
             'email' => $data['email'] ?? null,
@@ -917,25 +977,22 @@ class OrganizationController extends Controller
             'is_active' => $data['is_active'] ?? true,
         ]);
 
-        $roleIds = $data['role_ids'] ?? PositionDefaultRole::where('position_id', $data['position_id'])->pluck('role_id')->all();
+        $roleIds = array_values(array_unique($data['role_ids'] ?? []));
         foreach ($roleIds as $roleId) {
-            // Position defaults are org-configured, but a structural role in
-            // them still cannot be minted unscoped here (it would resolve to
-            // own-records-only); the head is appointed per unit afterwards.
+            // Structural roles cannot be minted unscoped here; the head is
+            // appointed per unit afterwards.
             if (in_array($roleId, self::STRUCTURAL_ROLES, true)) {
                 continue;
             }
 
-            // Same clamp as update() and grantRole(). Creating a staff member with
-            // role_ids:['BREAK_GLASS'] used to write effective_to => null, which is
-            // the one path that could mint an open-ended 23-permission grant: the
-            // safety valve that is supposed to be temporary became permanent.
+            // Same clamp as update() and grantRole(). Creating a staff member
+            // with role_ids:['BREAK_GLASS'] must not mint an open-ended grant.
             $isBreakGlass = in_array($roleId, $this->permissions->breakGlassIn([$roleId]), true);
 
             EmployeeRole::create([
                 'employee_id' => $empId,
                 'role_id' => $roleId,
-                'source' => ($data['role_ids'] ?? null) === null ? 'position_default' : 'manual_grant',
+                'source' => 'manual_grant',
                 'granted_by' => $form->user()->id,
                 'effective_from' => now()->toDateString(),
                 'effective_to' => $isBreakGlass ? $this->permissions->breakGlassExpiry() : null,
@@ -962,10 +1019,12 @@ class OrganizationController extends Controller
         $this->audit->append('employee', $empId, 'create', $form->user()->id, [
             'full_name' => $employee->full_name,
             'department_id' => $employee->department_id,
+            'division_id' => $employee->division_id,
+            'unit_id' => $employee->unit_id,
             'roles' => count($roleIds),
         ]);
 
-        return response()->json(['data' => $employee->load(['department', 'zone', 'position', 'roles'])
+        return response()->json(['data' => $employee->load(['department', 'division', 'unit', 'zone', 'position', 'roles'])
             ->setAttribute('role_ids', $employee->roles->pluck('id')->unique()->values()->all())
             ->setAttribute('scoped_grants', $this->scopedGrants($employee))], 201);
     }
@@ -1013,11 +1072,11 @@ class OrganizationController extends Controller
             $query->where('zone_id', $zoneId);
         }
 
-        // Filter by status
+        // Filter by status. Deleted rows are archived (is_active = false), so
+        // the default listing is active-only; pass is_active=false to audit
+        // archived rows.
         $isActive = $request->input('is_active');
-        if ($isActive !== null) {
-            $query->where('is_active', $isActive !== 'false');
-        }
+        $query->where('is_active', $isActive === null ? true : $isActive !== 'false');
 
         $divisions = $query->with(['zone', 'parent', 'headGrant'])
             ->latest('sort_order')
@@ -1026,7 +1085,7 @@ class OrganizationController extends Controller
         return response()->json([
             'data' => collect($divisions->items())->map(function (Department $d) use ($request) {
                 $head = $d->headGrant ?? null;
-                $employeeCount = Employee::where('department_id', $d->id)->where('is_active', true)->count();
+                $employeeCount = $this->placedEmployees('division_id', $d->id)->where('is_active', true)->count();
 
                 return [
                     'id' => $d->id,
@@ -1034,7 +1093,10 @@ class OrganizationController extends Controller
                     'name' => $d->name,
                     'name_sw' => $d->name_sw,
                     'zone' => $d->zone?->name,
+                    'parent_department_id' => $d->parent_department_id,
                     'parent_department' => $d->parent?->name,
+                    'unit_type' => $d->unit_type,
+                    'reports_directly_to_leadership' => (bool) $d->reports_directly_to_leadership,
                     'head' => $head ? [
                         'employee_id' => $head->employee_id,
                         'full_name' => $head->employee?->full_name,
@@ -1095,6 +1157,7 @@ class OrganizationController extends Controller
         'zone_id'               => $data['zone_id'] ?? null,
         'parent_department_id'  => $parentId,
         'unit_type'             => 'division',
+        'reports_directly_to_leadership' => (bool) ($data['reports_directly_to_leadership'] ?? false),
         'is_active'             => $data['is_active'] ?? true,
         'sort_order'            => $data['sort_order'] ?? 0,
         'effective_from'        => $data['effective_from'] ?? null,
@@ -1112,9 +1175,11 @@ class OrganizationController extends Controller
 
     public function showDivision(Department $division): JsonResponse
     {
-        $division->load(['zone', 'parent', 'headGrant', 'children', 'employees' => function ($q) {
-            $q->where('is_active', true)->with('position', 'zone', 'department');
-        }]);
+        $division->load(['zone', 'parent', 'headGrant', 'children']);
+        $division->setRelation('employees', $this->placedEmployees('division_id', $division->id)
+            ->where('is_active', true)
+            ->with('position', 'zone', 'department')
+            ->get());
 
         $employeeCount = $division->employees->count();
         $activeEmployeeCount = $division->employees->where('is_active', true)->count();
@@ -1186,34 +1251,18 @@ class OrganizationController extends Controller
 
     public function destroyDivision(Request $request, Department $division): JsonResponse
     {
-        // Check for active references before archive
-        $hasEmployees = Employee::where('department_id', $division->id)->where('is_active', true)->exists();
-        $hasChildren = Department::where('parent_department_id', $division->id)->where('is_active', true)->exists();
-
-        if ($hasEmployees || $hasChildren) {
-            $blockers = [];
-            if ($hasEmployees) {
-                $employeeCount = Employee::where('department_id', $division->id)->where('is_active', true)->count();
-                $blockers[] = ["employees" => $employeeCount];
-            }
-            if ($hasChildren) {
-                $childCount = Department::where('parent_department_id', $division->id)->where('is_active', true)->count();
-                $blockers[] = ["sub_units" => $childCount];
-            }
-
-            return response()->json([
-                'message' => sprintf(
-                    'Division "%s" still holds %d active employee(s) and/or %d active sub-unit(s). Move them first.',
-                    $division->name,
-                    ...array_values(array_combine(['employees', 'sub_units'], $blockers ?? [])),
-                ),
-                'errors' => ['division' => ['This division is still in use.']],
-                'blockers' => $blockers,
-            ], 422);
-        }
-
         $name = $division->name;
-        $division->update(['is_active' => false]);
+
+        DB::transaction(function () use ($division) {
+            // Promote any direct children to the division's own parent so the
+            // tree never keeps pointing at an archived division. Staff keep
+            // their placement reference; deleting never destroys history.
+            Department::where('parent_department_id', $division->id)
+                ->where('is_active', true)
+                ->update(['parent_department_id' => $division->parent_department_id]);
+
+            $division->update(['is_active' => false]);
+        });
 
         $this->audit->append('department', (string) $division->id, 'archive', $request->user()->id, [
             'name' => $name,
@@ -1236,7 +1285,8 @@ class OrganizationController extends Controller
 
     public function getDivisionEmployees(Request $request, Department $division): JsonResponse
     {
-        $query = Employee::where('department_id', $division->id)->with(['user', 'position', 'zone', 'department']);
+        $query = $this->placedEmployees('division_id', $division->id)
+            ->with(['user', 'position', 'zone', 'department', 'division', 'unit']);
 
         // Apply scope
         $canSeeSensitive = $this->permissions->can($request->user(), 'admin', 'view');
@@ -1264,6 +1314,8 @@ class OrganizationController extends Controller
                 'position' => $e->position?->title,
                 'zone' => $e->zone?->name,
                 'department' => $e->department?->name,
+                'division' => $e->division?->name,
+                'unit' => $e->unit?->name,
                 'email' => $e->email,
                 'is_active' => $e->is_active,
                 'hire_date' => $e->hire_date?->format('Y-m-d'),
@@ -1289,11 +1341,11 @@ class OrganizationController extends Controller
             $query->where('zone_id', $zoneId);
         }
 
-        // Filter by status
+        // Filter by status. Deleted rows are archived (is_active = false), so
+        // the default listing is active-only; pass is_active=false to audit
+        // archived rows.
         $isActive = $request->input('is_active');
-        if ($isActive !== null) {
-            $query->where('is_active', $isActive !== 'false');
-        }
+        $query->where('is_active', $isActive === null ? true : $isActive !== 'false');
 
         $units = $query->with(['zone', 'parent', 'headGrant'])
             ->latest('sort_order')
@@ -1302,7 +1354,7 @@ class OrganizationController extends Controller
         return response()->json([
             'data' => collect($units->items())->map(function (Department $d) use ($request) {
                 $head = $d->headGrant ?? null;
-                $employeeCount = Employee::where('department_id', $d->id)->where('is_active', true)->count();
+                $employeeCount = $this->placedEmployees('unit_id', $d->id)->where('is_active', true)->count();
 
                 return [
                     'id' => $d->id,
@@ -1312,6 +1364,8 @@ class OrganizationController extends Controller
                     'unit_type' => $d->unit_type,
                     'reports_to' => $d->parent?->name ?? '—',
                     'zone' => $d->zone?->name,
+                    'parent_department_id' => $d->parent_department_id,
+                    'reports_directly_to_leadership' => (bool) $d->reports_directly_to_leadership,
                     'head' => $head ? [
                         'employee_id' => $head->employee_id,
                         'full_name' => $head->employee?->full_name,
@@ -1350,17 +1404,9 @@ class OrganizationController extends Controller
         $data['code'] = $code;
     }
 
-    // Validate circular hierarchy
-    $parentId = $data['parent_department_id'] ?? null;
-    if ($parentId) {
-        $child = Department::find($this->seqId('departments'));
-        if (!Department::validateNoCircularParent($child, Department::find($parentId))) {
-            return response()->json([
-                'message' => 'Circular hierarchy detected.',
-                'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
-            ], 422);
-        }
-    }
+    // Units are independent organizational entities: they never hang under a
+    // department or division, so no parent (and no circular-hierarchy check).
+    $parentId = null;
 
     $unit = Department::create([
         'id'                    => $this->seqId('departments'),
@@ -1370,6 +1416,7 @@ class OrganizationController extends Controller
         'zone_id'               => $data['zone_id'] ?? null,
         'parent_department_id'  => $parentId,
         'unit_type'             => 'independent_unit',
+        'reports_directly_to_leadership' => (bool) ($data['reports_directly_to_leadership'] ?? false),
         'is_active'             => $data['is_active'] ?? true,
         'sort_order'            => $data['sort_order'] ?? 0,
         'effective_from'        => $data['effective_from'] ?? null,
@@ -1387,9 +1434,11 @@ class OrganizationController extends Controller
 
     public function showUnit(Department $unit): JsonResponse
     {
-        $unit->load(['zone', 'parent', 'headGrant', 'children', 'employees' => function ($q) {
-            $q->where('is_active', true)->with('position', 'zone', 'department');
-        }]);
+        $unit->load(['zone', 'parent', 'headGrant', 'children']);
+        $unit->setRelation('employees', $this->placedEmployees('unit_id', $unit->id)
+            ->where('is_active', true)
+            ->with('position', 'zone', 'department')
+            ->get());
 
         $employeeCount = $unit->employees->count();
         $activeEmployeeCount = $unit->employees->where('is_active', true)->count();
@@ -1405,6 +1454,8 @@ class OrganizationController extends Controller
                 'position' => $e->position?->title,
                 'zone' => $e->zone?->name,
                 'department' => $e->department?->name,
+                'division' => $e->division?->name,
+                'unit' => $e->unit?->name,
                 'email' => $e->email,
                 'is_active' => $e->is_active,
                 'hire_date' => $e->hire_date?->format('Y-m-d'),
@@ -1416,22 +1467,10 @@ class OrganizationController extends Controller
     {
         $data = $request->validated();
 
-        // Validate circular parent if parent is being changed
-        if (array_key_exists('parent_department_id', $data) && $data['parent_department_id']) {
-            $parentDept = Department::find($data['parent_department_id']);
-            if (!$parentDept) {
-                return response()->json([
-                    'message' => 'Parent department not found.',
-                    'errors' => ['parent_department_id' => ['Parent department not found.']],
-                ], 422);
-            }
-            if (!Department::validateNoCircularParent($unit, $parentDept)) {
-                return response()->json([
-                    'message' => 'Circular hierarchy detected: a unit cannot be its own ancestor.',
-                    'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
-                ], 422);
-            }
-        }
+        // Units are independent: they never take a parent and always remain
+        // `independent_unit`, whatever the client sends.
+        unset($data['parent_department_id'], $data['unit_type']);
+        $data['unit_type'] = 'independent_unit';
 
         $unit->update($data);
 
@@ -1444,38 +1483,17 @@ class OrganizationController extends Controller
 
     public function destroyUnit(Request $request, Department $unit): JsonResponse
     {
-        // Check for active references before archive
-        $hasEmployees = Employee::where('department_id', $unit->id)->where('is_active', true)->exists();
-        $hasChildren = Department::where('parent_department_id', $unit->id)->where('unit_type', 'independent_unit')
-            ->where('is_active', true)->exists();
-
-        if ($hasEmployees || $hasChildren) {
-            $blockers = [];
-            if ($hasEmployees) {
-                $employeeCount = Employee::where('department_id', $unit->id)->where('is_active', true)->count();
-                $blockers[] = ["employees" => $employeeCount];
-            }
-            if ($hasChildren) {
-                $childCount = Department::where('parent_department_id', $unit->id)
-                    ->where('unit_type', 'independent_unit')
-                    ->where('is_active', true)
-                    ->count();
-                $blockers[] = ["sub_units" => $childCount];
-            }
-
-            return response()->json([
-                'message' => sprintf(
-                    'Unit "%s" still holds %d active employee(s) and/or %d active sub-unit(s). Move them first.',
-                    $unit->name,
-                    ...array_values(array_combine(['employees', 'sub_units'], $blockers ?? [])),
-                ),
-                'errors' => ['unit' => ['This unit is still in use.']],
-                'blockers' => $blockers,
-            ], 422);
-        }
-
         $name = $unit->name;
-        $unit->update(['is_active' => false]);
+
+        DB::transaction(function () use ($unit) {
+            // Units are independent, but legacy rows may still carry children.
+            // Detach them rather than leaving an archived parent in the tree.
+            Department::where('parent_department_id', $unit->id)
+                ->where('is_active', true)
+                ->update(['parent_department_id' => null]);
+
+            $unit->update(['is_active' => false]);
+        });
 
         $this->audit->append('department', (string) $unit->id, 'archive', $request->user()->id, [
             'name' => $name,
@@ -1487,7 +1505,48 @@ class OrganizationController extends Controller
 
     public function assignUnitHead(Request $request, Department $unit): JsonResponse
     {
-        return $this->setHead($request, 'ZONAL_HEAD', 'scope_zone_id', null, $unit, 'unit');
+        return $this->setHead($request, 'DEPT_HEAD', 'department_id', (string) $unit->id, $unit, 'unit');
+    }
+
+    public function getUnitHead(Department $unit): JsonResponse
+    {
+        return response()->json(['data' => $this->headOf('DEPT_HEAD', 'department_id', (string) $unit->id)]);
+    }
+
+    /** Staff placed in this independent unit (placement only; never a workflow scope). */
+    public function getUnitEmployees(Request $request, Department $unit): JsonResponse
+    {
+        $canSeeSensitive = $this->permissions->can($request->user(), 'admin', 'view');
+
+        $employees = $this->placedEmployees('unit_id', $unit->id)
+            ->with(['user', 'position', 'zone', 'department', 'division', 'unit'])
+            ->when($request->input('active'), fn ($q) => $q->where('is_active', true))
+            ->latest('created_at')
+            ->paginate((int) $request->input('per_page', 20));
+
+        return response()->json([
+            'data' => collect($employees->items())->map(fn (Employee $e) => [
+                'id' => $e->id,
+                'full_name' => $e->full_name,
+                'payroll_no' => $canSeeSensitive ? $e->payroll_no : null,
+                'gender' => $canSeeSensitive ? $e->gender : null,
+                'position' => $e->position?->title,
+                'zone' => $e->zone?->name,
+                'department' => $e->department?->name,
+                'division' => $e->division?->name,
+                'unit' => $e->unit?->name,
+                'email' => $e->email,
+                'is_active' => $e->is_active,
+                'hire_date' => $e->hire_date?->format('Y-m-d'),
+            ]),
+            'pagination' => [
+                'total' => $employees->total(),
+                'per_page' => $employees->perPage(),
+                'current_page' => $employees->currentPage(),
+                'last_page' => $employees->lastPage(),
+                'path' => $employees->path(),
+            ],
+        ]);
     }
 
     // Helper: map department to division array

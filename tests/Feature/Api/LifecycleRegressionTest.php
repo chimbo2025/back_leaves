@@ -340,8 +340,8 @@ it('tells the matrix which codes are actually grantable', function () {
     // Sourced from the modules table, so the matrix groups by the real module
     // list instead of the free-text permissions.module column.
     expect($payload)->toHaveKeys(['data', 'modules']);
-    expect($payload['modules'])->toHaveCount(17);
-    expect(array_keys($payload['modules']))->toContain('requests', 'policies', 'documents', 'admin', 'delegations', 'reports', 'staff', 'leave_plans', 'leave_waivers', 'leave_returns', 'leave_payments', 'leave_documents', 'leave_payments', 'report_exports', 'audit_logs', 'notifications');
+    expect($payload['modules'])->toHaveCount(19);
+    expect(array_keys($payload['modules']))->toContain('requests', 'policies', 'documents', 'admin', 'delegations', 'reports', 'staff', 'leave_plans', 'leave_waivers', 'leave_returns', 'leave_payments', 'leave_documents', 'report_exports', 'audit_logs', 'notifications', 'employees', 'leave_requests');
 
     foreach ($payload['data'] as $code) {
         expect($code)->toHaveKeys(['code', 'module', 'action', 'status', 'active', 'enforcement_reference']);

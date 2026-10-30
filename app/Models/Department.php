@@ -45,9 +45,35 @@ class Department extends Model
         return $this->hasMany(Department::class, 'parent_department_id');
     }
 
+    /** Divisions that sit under this department (organizational placement). */
+    public function divisions(): HasMany
+    {
+        return $this->hasMany(Department::class, 'parent_department_id')
+            ->where('unit_type', 'division');
+    }
+
+    /** Independent units are standalone; exposed for symmetry. */
+    public function units(): HasMany
+    {
+        return $this->hasMany(Department::class, 'parent_department_id')
+            ->where('unit_type', 'independent_unit');
+    }
+
     public function employees(): HasMany
     {
         return $this->hasMany(Employee::class, 'department_id');
+    }
+
+    /** Staff placed in this division (organizational placement only). */
+    public function divisionEmployees(): HasMany
+    {
+        return $this->hasMany(Employee::class, 'division_id');
+    }
+
+    /** Staff placed in this independent unit (organizational placement only). */
+    public function unitEmployees(): HasMany
+    {
+        return $this->hasMany(Employee::class, 'unit_id');
     }
 
     public function headGrant(): HasOne
