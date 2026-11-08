@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Employee;
+use App\Models\Position;
 use Illuminate\Support\Facades\DB;
 
 it('deletes a position and detaches assigned employees without deleting them', function () {

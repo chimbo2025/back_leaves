@@ -8,12 +8,14 @@ use App\Http\Requests\StoreLeaveRequest;
 use App\Models\Employee;
 use App\Models\LeaveDocument;
 use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\WorkflowAssignment;
 use App\Services\AccessScopeService;
 use App\Services\AuditService;
 use App\Services\CaseHandoverService;
 use App\Services\LeaveRequestService;
 use App\Services\PermissionService;
+use App\Services\PolicyService;
 use App\Services\WorkflowResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -234,6 +236,27 @@ class RequestController extends Controller
         return response()->json(['data' => $this->chain($leaveRequest)]);
     }
 
+    /** Shared annual balance and annual-payment-cycle insight for the approver. */
+    public function approvalInsight(Request $request, LeaveRequest $leaveRequest): JsonResponse
+    {
+        $this->authorize('view', $leaveRequest);
+
+        $employee = $leaveRequest->employee;
+        $annualType = LeaveType::where('code', 'ANNUAL')->first();
+        if (! $employee || ! $annualType) {
+            return response()->json(['data' => ['annual_balance' => null, 'annual_request_number' => null, 'payment_eligible' => false]]);
+        }
+
+        $policy = app(PolicyService::class);
+        $ordinal = $policy->annualRequestOrdinal($leaveRequest);
+
+        return response()->json(['data' => [
+            'annual_balance' => $policy->balanceFor($employee->id, $annualType->id),
+            'annual_request_number' => $ordinal,
+            'payment_eligible' => $ordinal !== null && $ordinal % 2 === 0,
+        ]]);
+    }
+
     /**
      * Approval-chain preview for the new-request form. Resolution runs the
      * SAME WorkflowResolver as submission, so the preview cannot drift from
@@ -414,11 +437,41 @@ class RequestController extends Controller
         $scopeService = resolve(AccessScopeService::class);
         $scope = $scopeService->forUser($request->user(), AccessScopeService::REQUESTS);
 
-        $rows = WorkflowAssignment::with(['request.employee', 'request.leaveType'])
+        // Assigned (single-approver) rows: the assignment is owned by this user.
+        $assignedRows = WorkflowAssignment::with(['request.employee', 'request.leaveType', 'step'])
             ->where('assigned_employee_id', $employee?->id)
             ->where('status', 'pending')
+            ->whereHas('request', fn ($q) => $q->where('current_owner_id', $employee?->id))
+            ->orderBy('due_at')
+            ->get();
+
+        // Shared-queue rows: the step uses shared_queue and this user is an
+        // eligible holder of the role within scope, and the step has not yet
+        // been actioned.
+        $sharedRows = WorkflowAssignment::with(['request.employee', 'request.leaveType', 'step'])
+            ->whereNull('assigned_employee_id')
+            ->where('status', 'pending')
+            ->whereHas('step', fn ($q) => $q->where('assignment_mode', 'shared_queue'))
             ->orderBy('due_at')
             ->get()
+            ->filter(function ($wa) use ($employee) {
+                if (! $employee || ! $wa->step) {
+                    return false;
+                }
+                // Must be the current pending step for the request.
+                $head = WorkflowAssignment::where('request_id', $wa->request_id)
+                    ->whereIn('status', ['pending', 'queued'])
+                    ->orderBy('id')
+                    ->first();
+                if (! $head || $head->id !== $wa->id) {
+                    return false;
+                }
+                $resolver = app(\App\Services\WorkflowResolver::class);
+                $holders = $resolver->eligibleHolders($wa->request->employee, $wa->assigned_role_id, $wa->step->scope_type ?? 'requester_department');
+                return $holders->contains('id', $employee->id);
+            });
+
+        $rows = $assignedRows->concat($sharedRows)->sortBy('due_at')->values()
             ->map(function ($wa) use ($scope, $scopeService, $employee) {
                 $requester = $wa->request?->employee;
 

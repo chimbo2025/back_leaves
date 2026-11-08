@@ -166,6 +166,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // per-document medical/ownership decision in both cases.
         Route::get('{leaveRequest}/documents/{document}/download', [RequestController::class, 'downloadDocument'])->middleware('permission:documents.view');
         Route::delete('{leaveRequest}/documents/{document}', [RequestController::class, 'deleteDocument'])->middleware('permission:documents.delete');
+        Route::get('{leaveRequest}/approval-insight', [RequestController::class, 'approvalInsight'])->middleware('permission:requests.view');
         Route::get('{leaveRequest}', [RequestController::class, 'show']);
         Route::get('{leaveRequest}/workflow', [RequestController::class, 'workflow']);
         Route::post('{leaveRequest}/submit', [RequestController::class, 'submit'])->middleware('permission:requests.submit');
@@ -238,6 +239,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // families stay genuinely enforced and neither rots into a dead switch.
     Route::prefix('workflows')->middleware(['permission:policies.view', 'permission:approval_workflows.view'])->group(function () {
         Route::get('/', [WorkflowController::class, 'index']);
+        Route::post('preview', [WorkflowController::class, 'preview']);
         Route::get('{workflowDefinition}', [WorkflowController::class, 'show']);
         Route::post('/', [WorkflowController::class, 'store'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.create']);
         Route::match(['put', 'patch'], '{workflowDefinition}', [WorkflowController::class, 'update'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.update']);

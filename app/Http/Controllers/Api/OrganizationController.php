@@ -954,8 +954,8 @@ class OrganizationController extends Controller
 
         $user = User::create([
             'id' => $userId,
-            'username' => $data['username'] ?? $data['email'],
-            'email' => $data['email'],
+            'username' => $data['username'] ?? $data['email'] ?? null,
+            'email' => $data['email'] ?? null,
             'password' => $data['password'],
             'is_active' => $data['is_active'] ?? true,
         ]);

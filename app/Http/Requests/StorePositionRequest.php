@@ -51,6 +51,10 @@ class StorePositionRequest extends FormRequest
             'division_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'division'))],
             'unit_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'independent_unit'))],
             'zone_id' => ['nullable', Rule::exists('zones', 'id')],
+            // Positions are job titles only after the organization refactor;
+            // they never mint role grants. Reject the legacy field loudly so a
+            // stale client cannot believe it configured defaults.
+            'default_role_ids' => ['prohibited'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

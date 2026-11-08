@@ -231,8 +231,8 @@ it('withdraws a request owned by the requester', function () {
 
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-20',
-        'end_date' => '2026-11-24',
+        'start_date' => '2026-12-20',
+        'end_date' => '2026-12-24',
         'reason' => 'Planned break.',
     ], ['Authorization' => "Bearer {$requester}"]);
     $created->assertStatus(201);

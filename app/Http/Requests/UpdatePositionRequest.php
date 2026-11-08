@@ -23,7 +23,15 @@ class UpdatePositionRequest extends FormRequest
 
         $uniqueTitle = Rule::unique('positions', 'title')->ignore($id)
             ->where(function ($query) use ($departmentId, $divisionId, $unitId) {
-                if ($unitId) {
+                if ($divisionId && $unitId) {
+                    // If a position is associated with both, its title must be
+                    // unique in either scope.
+                    $query->where(function ($scope) use ($divisionId, $unitId) {
+                        $scope->where('division_id', $divisionId)->orWhere('unit_id', $unitId);
+                    });
+                } elseif ($unitId) {
+                    // Independent units own their title namespace regardless
+                    // of which department the employee record also points to.
                     $query->where('unit_id', $unitId);
                 } elseif ($divisionId) {
                     $query->where('division_id', $divisionId);
@@ -42,6 +50,9 @@ class UpdatePositionRequest extends FormRequest
             'division_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'division'))],
             'unit_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'independent_unit'))],
             'zone_id' => ['sometimes', 'nullable', Rule::exists('zones', 'id')],
+            // Positions are job titles only after the organization refactor;
+            // they never mint role grants.
+            'default_role_ids' => ['prohibited'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

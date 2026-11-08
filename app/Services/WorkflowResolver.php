@@ -15,6 +15,7 @@ use App\Models\WorkflowDefinition;
 use App\Models\WorkflowStep;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Dynamic workflow resolver — blueprint Part 2.
@@ -34,7 +35,7 @@ class WorkflowResolver
     }
 
     /** @var array{assignee: ?Employee, via: 'standing'|'delegation'|'escalated'|'default'} */
-    public function resolveApprover(Employee $employee, string $approvalRoleId, ?Collection $delegations = null): array
+    public function resolveApprover(Employee $employee, string $approvalRoleId, ?Collection $delegations = null, string $scopeType = 'requester_department'): array
     {
         $approvalRole = ApprovalRole::where('id', $approvalRoleId)
             ->orWhere('code', $approvalRoleId)
@@ -58,13 +59,20 @@ class WorkflowResolver
         // authority the delegator actually holds for this request. Without that
         // guard a department-head delegation in one department would approve
         // every department's requests.
-        $standing = $this->standingHolder($employee, $approvalRoleId, $resolutionType);
+        $standing = $this->standingHolder($employee, $approvalRoleId, $resolutionType, null, $scopeType);
 
         // 1. Active delegation for this role overrides the standing holder.
         //    When a standing holder exists, only that holder's own delegation
         //    applies (a department-head delegation must not approve another
         //    department's requests). When nobody stands in the role for this
         //    request, any active delegation for the role is the fallback.
+        // Scope-matched delegation: a delegation only overrides authority the
+        // delegator actually holds for this request. When a standing holder
+        // exists, only that holder's own delegation applies. When no standing
+        // holder exists, fall back to any active delegation for the role that
+        // explicitly covers the same role and request scope (legacy behavior
+        // retained for zones without a dedicated holder; tracked as a known
+        // gap until every zone has a scoped holder).
         $active = ($delegations ?? Delegation::all())->first(function (Delegation $d) use ($employee, $approvalRoleId, $standing) {
             return $d->active
                 && $d->approval_role_id === $approvalRoleId
@@ -85,8 +93,8 @@ class WorkflowResolver
 
         // Self-exclusion: requester holds the role themselves — try another holder
         if ($standing && $standing->id === $employee->id) {
-            $other = $this->standingHolder($employee, $approvalRoleId, $resolutionType, exclude: $employee->id);
-            $final = $this->standingHolder($employee, 'final_authority', $resolutionType, exclude: $employee->id);
+            $other = $this->standingHolder($employee, $approvalRoleId, $resolutionType, exclude: $employee->id, scopeType: $scopeType);
+            $final = $this->standingHolder($employee, 'final_authority', $resolutionType, exclude: $employee->id, scopeType: $scopeType);
 
             return ['assignee' => $other ?? $final, 'via' => 'escalated'];
         }
@@ -105,11 +113,27 @@ class WorkflowResolver
      *
      * The requester is excluded via the $exclude parameter.
      */
-    protected function standingHolder(Employee $employee, string $approvalRoleId, string $resolutionType = 'employee_approval_roles', ?string $exclude = null): ?Employee
+    protected function standingHolder(Employee $employee, string $approvalRoleId, string $resolutionType = 'employee_approval_roles', ?string $exclude = null, string $scopeType = 'requester_department'): ?Employee
     {
         // === Source: employee_approval_roles ===
         $approvalHolder = null;
         if (in_array($resolutionType, ['employee_approval_roles', 'both'], true)) {
+            // Resolve the set of organizational units the holder may sit in,
+            // driven by the step's scope_type.
+            if ($scopeType === 'requester_unit') {
+                $orgUnits = array_filter([$employee->unit_id]);
+            } elseif ($scopeType === 'requester_division') {
+                $orgUnits = array_filter([$employee->division_id]);
+            } elseif ($scopeType === 'requester_department') {
+                $orgUnits = array_values(array_unique(array_filter([
+                    $employee->department_id,
+                    ...$this->departmentChain($employee->department_id),
+                ])));
+            } else {
+                // requester_zone / office_wide: no organizational-unit restriction
+                $orgUnits = [];
+            }
+
             $query = EmployeeApprovalRole::where('approval_role_id', $approvalRoleId)
                 ->where(function ($q) {
                     $q->whereNull('effective_from')
@@ -118,31 +142,45 @@ class WorkflowResolver
                 ->where(function ($q) {
                     $q->whereNull('effective_to')
                         ->orWhereDate('effective_to', '>=', now()->toDateString());
-                })
-                // A grant with no unit is organisation-wide; a unit-scoped grant
-                // only answers for staff placed in that unit.
-                ->where(function ($q) use ($employee) {
-                    $q->whereNull('organizational_unit_id');
-                    if ($employee->department_id) {
-                        $q->orWhere('organizational_unit_id', $employee->department_id);
-                    }
-                })
-                ->where(function ($q) use ($employee) {
+                });
+
+            if ($scopeType === 'office_wide') {
+                // No organizational-unit or zone restriction.
+            } elseif ($scopeType === 'requester_zone') {
+                $query->where(function ($q) use ($employee) {
                     $q->whereNull('zone_id');
                     if ($employee->zone_id) {
                         $q->orWhere('zone_id', $employee->zone_id);
                     }
                 });
+            } else {
+                $query->where(function ($q) use ($orgUnits) {
+                    $q->whereNull('organizational_unit_id');
+                    if ($orgUnits !== []) {
+                        $q->orWhereIn('organizational_unit_id', $orgUnits);
+                    }
+                });
+                $query->where(function ($q) use ($employee) {
+                    $q->whereNull('zone_id');
+                    if ($employee->zone_id) {
+                        $q->orWhere('zone_id', $employee->zone_id);
+                    }
+                });
+            }
 
             $rows = $query->get()->sortByDesc(function ($er) use ($employee) {
                 $score = $er->is_primary ? 4 : 0;
-                if ($er->organizational_unit_id === $employee->department_id) {
+                if ($er->organizational_unit_id === $employee->unit_id && $employee->unit_id !== null) {
+                    $score += 8;
+                } elseif ($er->organizational_unit_id === $employee->division_id && $employee->division_id !== null) {
+                    $score += 6;
+                } elseif ($er->organizational_unit_id === $employee->department_id && $employee->department_id !== null) {
+                    $score += 4;
+                } elseif ($er->organizational_unit_id !== null) {
                     $score += 2;
-                } elseif ($er->organizational_unit_id === null && $employee->department_id === null) {
-                    $score += 1;
                 }
                 if ($er->zone_id === $employee->zone_id) {
-                    $score += 1;
+                    $score += 2;
                 }
                 return $score;
             });
@@ -190,7 +228,102 @@ class WorkflowResolver
         return $approvalHolder ?? $supervisorHolder;
     }
 
-    /** @var array{step_id: int, role: string, role_label: string, assignee_id: ?string, assignee_name: ?string, via: string, sla_days: int, due_at: string, note: ?string} */
+    /**
+     * Return the active employees eligible to act on a shared-queue step.
+     *
+     * @return \\Illuminate\\Support\\Collection<int, Employee>
+     */
+    public function eligibleHolders(Employee $requester, string $approvalRoleId, string $scopeType = 'requester_department'): Collection
+    {
+        $approvalRole = ApprovalRole::where('id', $approvalRoleId)->orWhere('code', $approvalRoleId)->first();
+        if (! $approvalRole) {
+            if ($legacy = $this->legacyApprovalRoleCode($approvalRoleId)) {
+                $approvalRole = ApprovalRole::where('code', $legacy)->first();
+            }
+        }
+        if (! $approvalRole) {
+            return collect();
+        }
+        $approvalRoleId = $approvalRole->id;
+
+        // Resolve candidate organizational units by scope.
+        if ($scopeType === 'requester_unit') {
+            $orgUnits = array_filter([$requester->unit_id]);
+        } elseif ($scopeType === 'requester_division') {
+            $orgUnits = array_filter([$requester->division_id]);
+        } elseif ($scopeType === 'requester_department') {
+            $orgUnits = array_values(array_unique(array_filter([
+                $requester->department_id,
+                ...$this->departmentChain($requester->department_id),
+            ])));
+        } else {
+            $orgUnits = [];
+        }
+
+        $query = EmployeeApprovalRole::where('approval_role_id', $approvalRoleId)
+            ->where(function ($q) {
+                $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', now()->toDateString());
+            })
+            ->where(function ($q) {
+                $q->whereNull('effective_to')->orWhereDate('effective_to', '>=', now()->toDateString());
+            });
+
+        if ($scopeType === 'office_wide') {
+            // no org/zone restriction
+        } elseif ($scopeType === 'requester_zone') {
+            $query->where(function ($q) use ($requester) {
+                $q->whereNull('zone_id');
+                if ($requester->zone_id) {
+                    $q->orWhere('zone_id', $requester->zone_id);
+                }
+            });
+        } else {
+            $query->where(function ($q) use ($orgUnits) {
+                $q->whereNull('organizational_unit_id');
+                if ($orgUnits !== []) {
+                    $q->orWhereIn('organizational_unit_id', $orgUnits);
+                }
+            });
+            $query->where(function ($q) use ($requester) {
+                $q->whereNull('zone_id');
+                if ($requester->zone_id) {
+                    $q->orWhere('zone_id', $requester->zone_id);
+                }
+            });
+        }
+
+        $holders = collect();
+        foreach ($query->get() as $row) {
+            $emp = Employee::find($row->employee_id);
+            if ($emp && $emp->is_active && $emp->id !== $requester->id) {
+                $holders->push($emp);
+            }
+        }
+        $holders = $holders->unique('id')->values();
+
+        // Add active delegates for this role.
+        $delegates = Delegation::where('approval_role_id', $approvalRoleId)
+            ->where('active', true)
+            ->whereDate('start_date', '<=', now()->toDateString())
+            ->whereDate('end_date', '>=', now()->toDateString())
+            ->get();
+        foreach ($delegates as $d) {
+            // delegate must be within scope? keep simple: add if not requester
+            $emp = Employee::find($d->delegate_employee_id);
+            if ($emp && $emp->is_active && $emp->id !== $requester->id && ! $holders->contains('id', $emp->id)) {
+                $holders->push($emp);
+            }
+        }
+
+        return $holders;
+    }
+
+    public function resolveDefinition(LeaveRequest $request): ?WorkflowDefinition
+    {
+        return $this->findDefinition($request->employee, $request);
+    }
+
+    /** @var array{step_id: int, role: string, role_label: string, assignee_id: ?string, assignee_name: ?string, via: string, sla_days: int, due_at: string, note: ?string, assignment_mode: string} */
     public function resolveWorkflow(LeaveRequest $request): array
     {
         $employee = $request->employee;
@@ -219,16 +352,64 @@ class WorkflowResolver
             // legacy role_required fallback keeps pre-catalog definitions
             // resolvable without hard-coding any role in the resolver.
             $approvalRoleId = $step->approval_role_id ?: $step->role_required;
+            $assignmentMode = $step->assignment_mode ?? 'assigned_approver';
+            $scopeType = $step->scope_type ?? 'requester_department';
 
-            $entry = $this->resolveApprover($employee, $approvalRoleId, $delegations);
+            if ($assignmentMode === 'shared_queue') {
+                $holders = $this->eligibleHolders($employee, $approvalRoleId, $scopeType);
+                if ($holders->isEmpty() && $step->fallback_approval_role_id) {
+                    $holders = $this->eligibleHolders($employee, $step->fallback_approval_role_id, $scopeType);
+                    if ($holders->isNotEmpty()) {
+                        $approvalRoleId = $step->fallback_approval_role_id;
+                    }
+                }
+
+                if ($holders->isEmpty()) {
+                    $isMandatory = $step->is_mandatory ?? true;
+                    if ($isMandatory) {
+                        return $this->blockWithMissingMandatory($step, $chain);
+                    }
+                    $chain[] = [
+                        'step_id' => $step->id,
+                        'role' => $step->role_required ?: ($step->approvalRole?->code ?? 'UNKNOWN'),
+                        'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
+                        'assignee_id' => null,
+                        'assignee_name' => null,
+                        'via' => 'skipped_optional',
+                        'sla_days' => $step->sla_days ?? 3,
+                        'due_at' => null,
+                        'note' => 'Optional step skipped: no eligible shared-queue holders found.',
+                        'assignment_mode' => 'shared_queue',
+                    ];
+                    continue;
+                }
+
+                // Shared queue: no single assignee; eligible holders act.
+                $chain[] = [
+                    'step_id' => $step->id,
+                    'role' => $step->role_required ?: ($step->approvalRole?->code ?? 'UNKNOWN'),
+                    'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
+                    'assignee_id' => null,
+                    'assignee_name' => null,
+                    'via' => 'shared_queue',
+                    'sla_days' => $step->sla_days ?? 3,
+                    'due_at' => Carbon::parse($request->submitted_at ?? now())->addDays($step->sla_days ?? 3)->toDateTimeString(),
+                    'note' => $step->note,
+                    'assignment_mode' => 'shared_queue',
+                ];
+                $lastAssigneeId = null;
+                continue;
+            }
+
+            $entry = $this->resolveApprover($employee, $approvalRoleId, $delegations, $scopeType);
 
             // Fallback approval role: only used when the primary role has no
             // standing holder.
-            if (! $entry && $step->fallback_approval_role_id) {
-                $entry = $this->resolveApprover($employee, $step->fallback_approval_role_id, $delegations);
+            if (! ($entry['assignee'] ?? null) && $step->fallback_approval_role_id) {
+                $entry = $this->resolveApprover($employee, $step->fallback_approval_role_id, $delegations, $scopeType);
             }
 
-            if (! $entry) {
+            if (! ($entry['assignee'] ?? null)) {
                 // The top of the hierarchy (the DPP) has no supervisor. An
                 // unstaffed supervisor step there is expected, not a
                 // configuration error, so it is skipped rather than blocking
@@ -302,6 +483,7 @@ class WorkflowResolver
                         ->addDays($slaDays)
                         ->toDateTimeString(),
                     'note' => $step->note,
+                    'assignment_mode' => 'assigned_approver',
                 ]);
                 unset($entry['assignee']);
                 $chain[] = $entry;
@@ -426,35 +608,90 @@ class WorkflowResolver
     /**
      * Select the most specific active workflow definition for the given request.
      *
-     * Workflow scope is DEPARTMENT ONLY (organization refactor). Divisions and
-     * independent units are organizational placement and never influence
-     * resolution; the department chain still lets a definition on an ancestor
-     * department cover its divisions.
+     * Scope precedence, most specific first: the employee's independent unit,
+     * then their division, then their own department, then an ancestor
+     * department, then the zone, then the office-wide default. A definition
+     * narrowed to the employee's zone breaks a tie within the same placement.
      */
     protected function findDefinition(Employee $employee, LeaveRequest $request): ?WorkflowDefinition
     {
         $deptChain = $this->departmentChain($employee->department_id);
+        $placementIds = array_values(array_unique(array_filter([
+            $employee->unit_id,
+            $employee->division_id,
+            ...$deptChain,
+        ])));
         $day = now()->toDateString();
 
-        $query = WorkflowDefinition::where('leave_type_id', $request->leave_type_id)
+        $definitions = WorkflowDefinition::where('leave_type_id', $request->leave_type_id)
             ->where('is_active', true);
 
         if ($request->days !== null) {
-            $query->where('min_duration_days', '<=', $request->days);
+            $definitions->where('min_duration_days', '<=', $request->days);
         }
 
-        return $query->where(function ($q) use ($deptChain) {
-            $q->whereNull('department_id')
-                ->orWhereIn('department_id', $deptChain);
-        })
+        $matches = $definitions
             ->where('effective_from', '<=', $day)
             ->where(function ($q) use ($day) {
                 $q->whereNull('effective_to')->orWhere('effective_to', '>', $day);
             })
-            ->orderByRaw('department_id IS NOT NULL DESC')
-            ->orderByDesc('min_duration_days')
-            ->orderByDesc('version')
-            ->first();
+            ->get()
+            ->filter(function (WorkflowDefinition $definition) use ($employee, $placementIds) {
+                if ($definition->zone_id !== null && $definition->zone_id !== $employee->zone_id) {
+                    return false;
+                }
+
+                return $definition->department_id === null
+                    || in_array($definition->department_id, $placementIds, true);
+            })
+            ->all();
+
+        usort($matches, function (WorkflowDefinition $a, WorkflowDefinition $b) use ($employee, $deptChain) {
+            $score = function (WorkflowDefinition $definition) use ($employee, $deptChain): int {
+                $scopeScore = match (true) {
+                    $definition->department_id !== null && $definition->department_id === $employee->unit_id => 400,
+                    $definition->department_id !== null && $definition->department_id === $employee->division_id => 300,
+                    $definition->department_id !== null && $definition->department_id === $employee->department_id => 200,
+                    $definition->department_id !== null && in_array($definition->department_id, $deptChain, true) => 100,
+                    $definition->zone_id !== null => 50,
+                    default => 0,
+                };
+
+                // Within a placement level, a definition narrowed to the
+                // employee's zone wins over the same department-wide scope.
+                return $scopeScore + ($definition->zone_id !== null ? 10 : 0);
+            };
+
+            return [$score($b), $b->min_duration_days, $b->version]
+                <=> [$score($a), $a->min_duration_days, $a->version];
+        });
+
+        if (count($matches) < 2) {
+            return $matches[0] ?? null;
+        }
+
+        // Equal-specificity conflict detection: if the top two candidates
+        // resolve to the same scope score, the configuration is ambiguous
+        // and must not be silently resolved.
+        $scoreFn = function (WorkflowDefinition $definition) use ($employee, $deptChain): int {
+            $scopeScore = match (true) {
+                $definition->department_id !== null && $definition->department_id === $employee->unit_id => 400,
+                $definition->department_id !== null && $definition->department_id === $employee->division_id => 300,
+                $definition->department_id !== null && $definition->department_id === $employee->department_id => 200,
+                $definition->department_id !== null && in_array($definition->department_id, $deptChain, true) => 100,
+                $definition->zone_id !== null => 50,
+                default => 0,
+            };
+            return $scopeScore + ($definition->zone_id !== null ? 10 : 0);
+        };
+
+        if ($scoreFn($matches[0]) === $scoreFn($matches[1])) {
+            throw ValidationException::withMessages([
+                'workflow' => 'Multiple active workflows match this request with equal scope specificity. Resolve the configuration conflict before submitting.',
+            ]);
+        }
+
+        return $matches[0] ?? null;
     }
 
     /**
@@ -541,6 +778,9 @@ class WorkflowResolver
      */
     protected function noHolder(string $reason): array
     {
-        return [];
+        // Always return the documented shape. Callers test the assignee, not
+        // the array's truthiness, so a "nobody" result stays distinguishable
+        // from a genuine hit (and the reason is available for diagnostics).
+        return ['assignee' => null, 'via' => 'default', 'reason' => $reason];
     }
 }

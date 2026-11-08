@@ -41,7 +41,7 @@ it('never leaves a break-glass grant unbounded when an employee is created', fun
         'zone_id' => 'z1',
         'hire_date' => '2026-01-05',
         'username' => 'temp_elevated',
-        'password' => 'password',
+        'password' => 'Password123',
         'role_ids' => ['BREAK_GLASS'],
     ], ['Authorization' => "Bearer {$dpp}"])
         ->assertStatus(201)
@@ -203,7 +203,7 @@ it('refuses to mint authority the caller does not hold', function () {
         'zone_id' => 'z1',
         'hire_date' => '2026-01-05',
         'username' => 'shadow_authority',
-        'password' => 'password',
+        'password' => 'Password123',
         'role_ids' => ['FINAL_AUTHORITY'],
     ], ['Authorization' => "Bearer {$hr}"])
         ->assertStatus(422)

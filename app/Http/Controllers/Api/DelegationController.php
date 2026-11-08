@@ -67,6 +67,19 @@ class DelegationController extends Controller
             throw ValidationException::withMessages(['delegate_employee_id' => 'You cannot delegate to yourself.']);
         }
 
+        // Prevent overlapping active delegations for the same delegator + role.
+        $overlap = Delegation::where('delegator_employee_id', $employee->id)
+            ->where('role_id', $request->role_id)
+            ->where('active', true)
+            ->whereDate('start_date', '<=', $request->end_date)
+            ->whereDate('end_date', '>=', $request->start_date)
+            ->exists();
+        if ($overlap) {
+            throw ValidationException::withMessages([
+                'role_id' => 'An active delegation for this role already overlaps the requested period. Revoke or replace it first.',
+            ]);
+        }
+
         $id = 'del'.(Delegation::count() + 1);
         $delegation = Delegation::create([
             'id' => $id,

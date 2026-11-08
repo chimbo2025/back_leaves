@@ -10,6 +10,7 @@ class WorkflowStep extends Model
 {
     protected $fillable = [
         'workflow_def_id', 'step_order', 'approval_role_id', 'fallback_approval_role_id', 'role_required',
+        'assignment_mode', 'scope_type',
         'sla_days', 'is_mandatory', 'allow_same_person_as_previous_steps', 'conditions', 'escalation_after_sla', 'note',
     ];
 

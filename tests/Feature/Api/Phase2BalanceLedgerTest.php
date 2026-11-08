@@ -50,8 +50,8 @@ it('posts exactly one ledger credit for an approved deferral', function () {
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_requested_deferral',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-05',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-05',
         'reason' => 'Deferring five statutory days.',
     ]);
 
@@ -80,8 +80,8 @@ it('posts no ledger transaction when the action changes no entitlement', functio
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'rescheduled',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-05',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-05',
     ]);
 
     $response = ledgerApprove('u3', $id)->assertOk();
@@ -97,8 +97,8 @@ it('does not post a second transaction when an approval is retried', function ()
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_declined',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-07',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-07',
     ]);
 
     ledgerApprove('u3', $id)->assertOk();
@@ -123,8 +123,8 @@ it('applies a debit to the balance exactly once without touching dynamic usage',
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_declined',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-06',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-06',
     ]);
 
     ledgerApprove('u3', $id)->assertOk();
@@ -142,8 +142,8 @@ it('rolls back both the waiver decision and the ledger write together', function
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_requested_deferral',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-05',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-05',
     ]);
 
     $mock = Mockery::mock(BalanceTransactionService::class)->makePartial();
@@ -162,8 +162,8 @@ it('refuses to create a ledger effect for an unauthorised caller', function () {
     $id = ledgerSubmitWaiver('u8', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_declined',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-05',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-05',
     ]);
 
     // u8 has no waiver decision permission at all.
@@ -177,8 +177,8 @@ it('treats posted transactions as immutable', function () {
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_declined',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-05',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-05',
     ]);
     ledgerApprove('u3', $id)->assertOk();
 
@@ -197,8 +197,8 @@ it('corrects a posted effect with a reversal transaction, not an edit', function
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employee_declined',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-09',
+        'leave_cycle_start' => '2026-12-01',
+        'leave_cycle_end' => '2026-12-09',
     ]);
     ledgerApprove('u3', $id)->assertOk();
 
@@ -223,8 +223,8 @@ it('stores the policy decision snapshot on effect_json, not on a balance row', f
     $id = ledgerSubmitWaiver('u7', [
         'leave_type_id' => 'lt3',
         'requested_action' => 'employer_deferred',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-04',
+        'leave_cycle_start' => now()->toDateString(),
+        'leave_cycle_end' => now()->addDays(3)->toDateString(),
     ]);
     ledgerApprove('u3', $id)->assertOk();
 

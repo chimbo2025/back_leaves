@@ -105,10 +105,6 @@
             <span class="field-value">{{ now()->format('F j, Y') }}</span>
         </div>
         <div class="field-row">
-            <span class="field-label">Cancelled By:</span>
-            <span class="field-value">{{ $generator->full_name ?? 'System' }}</span>
-        </div>
-        <div class="field-row">
             <span class="field-label">Document Version:</span>
             <span class="field-value">v{{ $documentVersion }}</span>
         </div>

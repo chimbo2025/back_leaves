@@ -64,6 +64,10 @@ it('flags inbox rows whose requester sits outside the caller scope', function ()
     $northRequest = LeaveRequest::where('ref', 'LVE-2026-0150')->firstOrFail(); // e8, z2
     $hqRequest = LeaveRequest::where('ref', 'LVE-2026-0147')->firstOrFail();    // e7, z1
 
+    // The inbox lists only requests whose current owner is the caller.
+    $northRequest->update(['current_owner_id' => 'e4']);
+    $hqRequest->update(['current_owner_id' => 'e4']);
+
     WorkflowAssignment::create([
         'request_id' => $northRequest->id,
         'assigned_employee_id' => 'e4',
@@ -98,6 +102,8 @@ it('flags inbox rows whose requester sits outside the caller scope', function ()
         'due_at' => now()->addDays(5),
     ]);
 
+    $hqRequest->update(['current_owner_id' => 'e1']);
+
     $dppRows = collect($this->getJson('/api/requests/inbox', ['Authorization' => 'Bearer '.apiLogin('u1')])
         ->assertOk()
         ->json('data'));
@@ -110,7 +116,7 @@ it('refuses to mint an unscoped department or zonal head through any role path',
 
     // Registration.
     $this->postJson('/api/org/employees', [
-        'username' => 'head.mint', 'password' => 'secret123', 'full_name' => 'Head Mint',
+        'username' => 'head.mint', 'password' => 'Password123', 'full_name' => 'Head Mint',
         'position_id' => 'p2', 'department_id' => 'd1', 'zone_id' => 'z1',
         'hire_date' => '2026-01-01', 'role_ids' => ['DEPT_HEAD'],
     ], $admin)->assertStatus(422)->assertJsonPath('errors.role_ids.0', 'Department and zonal heads are appointed to a specific unit. Use the department/zone head picker, not the role list.');

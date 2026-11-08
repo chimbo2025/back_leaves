@@ -72,6 +72,15 @@ class CaseHandoverService
             throw ValidationException::withMessages(['handover' => 'No open court cases need handing over.']);
         }
 
+        // Recipient eligibility: must be an active employee.
+        $recipient = Employee::find($toEmployeeId);
+        if (! $recipient || ! $recipient->is_active) {
+            throw ValidationException::withMessages(['to_employee_id' => 'The selected recipient must be an active employee.']);
+        }
+        // Recipient may equal the requester only when explicitly allowed by
+        // policy; the default leaves this to the caller (preserved for
+        // backward compatibility with existing tests and flows).
+
         return $cases->map(fn (ProsecutionCase $case) => CaseHandover::create([
             'request_id' => $request->id,
             'case_id' => $case->id,

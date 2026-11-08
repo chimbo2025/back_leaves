@@ -121,8 +121,8 @@ it('new requests receive policy snapshots and eligibility data when submitted', 
 
     $response = $this->postJson('/api/requests', [
         'leave_type_id' => $annual->id,
-        'start_date' => '2026-11-10',
-        'end_date' => '2026-11-14',
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(34)->toDateString(),
         'reason' => 'Annual leave test',
     ], ['Authorization' => "Bearer {$token}"]);
     $response->assertStatus(201);

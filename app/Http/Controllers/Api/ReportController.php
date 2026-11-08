@@ -24,8 +24,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Report API endpoints (Phase 7).
@@ -233,18 +235,21 @@ class ReportController extends Controller
     }
 
     /**
-     * Download an export (returns signed URL).
+     * Stream a completed export to the authenticated requester.
      */
-    public function downloadExport(Request $request, ReportExport $export): JsonResponse
+    public function downloadExport(Request $request, ReportExport $export): StreamedResponse|JsonResponse
     {
         $user = $request->user();
         $employee = $user->employee;
 
         $this->auth->assertCanDownloadExport($employee, $export);
 
-        $result = $this->exports->download($export, $employee);
+        $file = $this->exports->download($export, $employee);
 
-        return response()->json(['data' => $result]);
+        return Storage::disk($file['disk'])->download($file['path'], $file['name'], [
+            'Content-Type' => $file['mime'],
+            'Cache-Control' => 'no-store',
+        ]);
     }
 
     /**

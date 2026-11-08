@@ -106,97 +106,7 @@
     </div>
 
     <div class="section">
-        <h3 class="section-title">Approval Chain</h3>
-        <table class="approval-table">
-            <thead>
-                <tr>
-                    <th>Step</th>
-                    <th>Approver</th>
-                    <th>Position / Role</th>
-                    <th>Decision</th>
-                    <th>Date &amp; Time</th>
-                    <th>Comments</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($approval_snapshot as $index => $step)
-                    @php
-                        $assignedRole = null;
-                        $assigneeName = $step['assignee'] ?? '—';
-                        $actions = $step['actions'] ?? [];
-                        $actionDecision = '';
-                        $actionComment = '';
-                        $actionDate = '';
-                        $activeAction = null;
-                    @endphp
-                    @foreach($actions as $action)
-                        @if(empty($activeAction) || ($action['acted_at'] ?? null) > ($activeAction['acted_at'] ?? null))
-                            @php
-                                $activeAction = $action;
-                            @endphp
-                        @endif
-                    @endforeach
-                    @if($activeAction)
-                        @php
-                            $actionDecision = strtoupper(trim($activeAction['decision'] ?? ''));
-                            $actionComment = $activeAction['comments'] ?? '—';
-                            $actionDate = $activeAction['acted_at']
-                                ? \Carbon\Carbon::parse($activeAction['acted_at'])->format('M j, Y H:i')
-                                : '—';
-                        @endphp
-                    @else
-                        $actionDecision = 'Pending';
-                        $actionComment = '';
-                        $actionDate = '—';
-                    @endif
-
-                    @php
-                        // Build display label for assignee position/role
-                        $positionOrRole = 'N/A';
-                        if (!empty($step['assignee'])) {
-                            $positionOrRole = '';
-                            if ($step['assignee']->position) {
-                                $positionOrRole = $step['assignee']->position->title ?? '';
-                            }
-                            // If no position, try to find role via assignment
-                            // The snapshot stores role_id, resolve through pending actions
-                            $roleCode = '';
-                            // Try to match by checking the assignments relation if loaded
-                            $roleCode = $step['role'] ?? '';
-                            if ($roleCode) {
-                                try {
-                                    $roleCode = \App\Models\ApprovalRole::find($roleCode)?->code ?? $roleCode;
-                                } catch (\Exception $e) {
-                                    $roleCode = $roleCode;
-                                }
-                            }
-                            if ($positionOrRole && $roleCode) {
-                                $positionOrRole .= ' / ' . $roleCode;
-                            } elseif ($roleCode) {
-                                $positionOrRole = $roleCode;
-                            }
-                        }
-                    @endphp
-
-                    <tr>
-                        <td>{{ $index + 1 }}</td>
-                        <td>{{ $assigneeName }}</td>
-                        <td>{{ $positionOrRole }}</td>
-                        <td><span style="text-transform:capitalize;">{{ $actionDecision }}</span></td>
-                        <td>{{ $actionDate }}</td>
-                        <td>{{ $actionComment }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </div>
-
-    <div class="section">
         <h3 class="section-title">Issuing Authority</h3>
-        <div class="field-row">
-            <span class="field-label">Issued By:</span>
-            <span class="field-value">{{ $generator->full_name ?? 'N/A' }}</span>
-        </div>
         <div class="field-row">
             <span class="field-label">Issue Date:</span>
             <span class="field-value">{{ now()->format('F j, Y') }}</span>
@@ -210,24 +120,6 @@
             <span class="field-value">v{{ $templateVersion }}</span>
         </div>
     </div>
-
-    @if($finalAuthority)
-        <div class="section">
-            <h3 class="section-title">Final Approval Signature</h3>
-            <div class="field-row">
-                <span class="field-label">By:</span>
-                <span class="field-value">{{ $finalAuthority->full_name ?? 'N/A' }}</span>
-            </div>
-            <div class="field-row">
-                <span class="field-label">Date:</span>
-                <span class="field-value">{{ $finalAuthority->signed_at?->format('M j, Y') ?? '—' }}</span>
-            </div>
-            <div class="field-row">
-                <span class="field-label">Decision:</span>
-                <span class="field-value">{{ $finalAuthority->decision }}</span>
-            </div>
-        </div>
-    @endif
 
     <div class="qr-section">
         <div class="qr-code" title="QR Code: {{ $qrToken }}">

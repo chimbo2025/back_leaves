@@ -100,6 +100,40 @@ class PolicyService
         return $start;
     }
 
+    /** Return the service-year window containing the supplied date. */
+    public function serviceYearWindow(string $hireDate, ?CarbonInterface $date = null): array
+    {
+        $start = $this->serviceYearStart($hireDate, $date);
+
+        return [$start, $start->copy()->addYear()];
+    }
+
+    /**
+     * Ordinal of an annual-leave request in the employee's service year.
+     * A pending request is counted after earlier approved annual requests; an
+     * approved request includes itself. This drives the every-second-request
+     * payment rule without storing a second counter in the database.
+     */
+    public function annualRequestOrdinal(LeaveRequest $request): ?int
+    {
+        $employee = $request->employee;
+        $annual = LeaveType::where('code', 'ANNUAL')->first();
+        if (! $employee || ! $annual || $request->leave_type_id !== $annual->id) {
+            return null;
+        }
+
+        [$start, $end] = $this->serviceYearWindow($employee->hire_date, Carbon::parse($request->start_date));
+        $beforeOrCurrent = LeaveRequest::where('employee_id', $employee->id)
+            ->where('leave_type_id', $annual->id)
+            ->where('status', 'approved')
+            ->where('start_date', '>=', $start->toDateString())
+            ->where('start_date', '<', $end->toDateString())
+            ->where('created_at', '<=', $request->created_at ?? now())
+            ->count();
+
+        return $request->status === 'approved' ? max(1, $beforeOrCurrent) : $beforeOrCurrent + 1;
+    }
+
     /**
      * Balance for an employee + leave type, mirroring frontend balanceOf():
      * statutory types are fixed entitlements; others accrue over the service
@@ -111,10 +145,24 @@ class PolicyService
         $leave = LeaveType::findOrFail($leaveTypeId);
         $policy = $this->currentPolicy($leaveTypeId);
 
-        $used = LeaveRequest::where('employee_id', $employeeId)
-            ->where('leave_type_id', $leaveTypeId)
-            ->whereIn('status', ['approved', 'under_review'])
-            ->sum('days');
+        $usageQuery = LeaveRequest::where('employee_id', $employeeId)
+            ->where(function ($q) {
+                $q->where('status', 'approved')
+                    ->orWhere(fn ($pending) => $pending->where('status', 'under_review')->whereNotNull('end_date'));
+            });
+
+        if ($leave->code === 'ANNUAL') {
+            // Annual leave is a shared service-year bank: every approved leave
+            // type consumes days from it, not only requests whose type is ANNUAL.
+            $serviceStart = $this->serviceYearStart($employee->hire_date);
+            $serviceEnd = $serviceStart->copy()->addYear();
+            $usageQuery->where('start_date', '>=', $serviceStart->toDateString())
+                ->where('start_date', '<', $serviceEnd->toDateString());
+        } else {
+            $usageQuery->where('leave_type_id', $leaveTypeId);
+        }
+
+        $used = (float) $usageQuery->sum('days');
 
         // Phase 2 balance decision: add the append-only ledger's net effect for
         // every type that is NOT already represented by dynamic accrual/usage,
@@ -173,15 +221,23 @@ class PolicyService
         if ($carryOverMax <= 0) {
             return 0;
         }
-        // days used in the prior service year (approved | under_review)
+        // Prior-service-year usage follows the same pool definition as the
+        // current balance. For annual leave, all leave types count; other
+        // balances remain type-specific.
         $syStart = $this->serviceYearStart($employee->hire_date);
         $psyStart = $syStart->copy()->subYear();
-        $used = LeaveRequest::where('employee_id', $employee->id)
-            ->where('leave_type_id', $leaveTypeId)
-            ->whereIn('status', ['approved', 'under_review'])
+        $leaveType = LeaveType::find($leaveTypeId);
+        $query = LeaveRequest::where('employee_id', $employee->id)
+            ->where(function ($q) {
+                $q->where('status', 'approved')
+                    ->orWhere(fn ($pending) => $pending->where('status', 'under_review')->whereNotNull('end_date'));
+            })
             ->where('start_date', '>=', $psyStart->toDateString())
-            ->where('end_date', '<', $syStart->toDateString())
-            ->sum('days');
+            ->where('start_date', '<', $syStart->toDateString());
+        if ($leaveType?->code !== 'ANNUAL') {
+            $query->where('leave_type_id', $leaveTypeId);
+        }
+        $used = (float) $query->sum('days');
         $policy = $this->currentPolicy($leaveTypeId);
         $max = (float) ($policy?->max_days_per_year ?? 0);
         $leftover = max(0, $max - $used);

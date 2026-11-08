@@ -47,13 +47,18 @@ it('blocks a later dated request that overlaps open-ended leave', function () {
 });
 
 it('blocks start-date-only leave that overlaps an existing submitted request', function () {
-    // e7 has submitted r9 spanning 2026-10-19..2026-10-25; a start-only
-    // request beginning inside that window must be refused, not crash.
+    // e7 has a submitted request; move its window ahead of today so this test
+    // does not expire as the calendar advances. A start-only request beginning
+    // inside that window must be refused, not crash.
+    \App\Models\LeaveRequest::where('ref', 'LVE-2026-0163')->update([
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(36)->toDateString(),
+    ]);
     $token = apiLogin('u7');
 
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-10-20',
+        'start_date' => now()->addDays(31)->toDateString(),
         'reason' => 'Start only, inside submitted leave.',
     ], ['Authorization' => "Bearer {$token}"]);
     $created->assertStatus(201);

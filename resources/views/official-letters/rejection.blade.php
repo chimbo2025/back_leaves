@@ -111,51 +111,7 @@
     </div>
 
     <div class="section">
-        <h3 class="section-title">Review History</h3>
-        <table class="approval-table" style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt;">
-            <thead>
-                <tr style="background-color: #8b1a1a; color: white;">
-                    <th style="border: 1px solid #ddd; padding: 8px;">Step</th>
-                    <th style="border: 1px solid #ddd; padding: 8px;">Role</th>
-                    <th style="border: 1px solid #ddd; padding: 8px;">Assignee</th>
-                    <th style="border: 1px solid #ddd; padding: 8px;">Decision</th>
-                    <th style="border: 1px solid #ddd; padding: 8px;">Acted At</th>
-                    <th style="border: 1px solid #ddd; padding: 8px;">Comments</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($approval_snapshot as $index => $step)
-                    <tr style="{{ $index % 2 === 0 ? 'background-color: #f9f9f9;' : '' }}">
-                        <td style="border: 1px solid #ddd; padding: 8px;">{{ $index + 1 }}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">{{ $step['role'] }}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">{{ $step['assignee'] ?? '—' }}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">
-                            @foreach($step['actions'] as $action)
-                                <span style="text-transform:capitalize; color: {{ $action['decision'] === 'rejected' ? '#8b1a1a' : '' }};">{{ $action['decision'] }}</span> by {{ $action['actor'] }}<br>
-                            @endforeach
-                        </td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">
-                            @foreach($step['actions'] as $action)
-                                {{ $action['acted_at'] ? \Carbon\Carbon::parse($action['acted_at'])->format('M j, Y H:i') : '—' }}<br>
-                            @endforeach
-                        </td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">
-                            @foreach($step['actions'] as $action)
-                                {{ $action['comments'] ?? '—' }}<br>
-                            @endforeach
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </div>
-
-    <div class="section">
         <h3 class="section-title">Issuing Authority</h3>
-        <div class="field-row">
-            <span class="field-label">Issued By:</span>
-            <span class="field-value">{{ $generator->full_name ?? 'System' }}</span>
-        </div>
         <div class="field-row">
             <span class="field-label">Issue Date:</span>
             <span class="field-value">{{ now()->format('F j, Y') }}</span>

@@ -19,6 +19,17 @@ class SpecificationComplianceTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Feature tests get the frontend-parity dataset from Pest.php's
+        // beforeEach hook. Class-based PHPUnit tests do not run that hook, so
+        // seed here as well: these assertions inspect real zones, workflows,
+        // roles and leave types.
+        $this->seed(\Database\Seeders\DatabaseSeeder::class);
+    }
+
     /** 1. Organization structure matches real DPP hierarchy */
     public function test_department_ancestor_chain_and_circular_guard(): void
     {
@@ -30,7 +41,7 @@ class SpecificationComplianceTest extends TestCase
             'id' => 'd_child', 'name' => 'Child', 'parent_department_id' => 'd_root',
             'zone_id' => 'z1', 'unit_type' => 'division',
         ]);
-        $this->assertTrue($child->ancestorChain()->contains($root));
+        $this->assertTrue(collect($child->ancestorChain())->contains(fn ($d) => $d->is($root)));
     }
 
     /** 2. Workflow definitions fully dynamic via approval_role_id */
@@ -44,7 +55,7 @@ class SpecificationComplianceTest extends TestCase
         ]);
         $step = WorkflowStep::create([
             'workflow_def_id' => 'wf_annual',
-            'step_order' => 1,
+            'step_order' => 99,
             'approval_role_id' => 'supervisor',
             'role_required' => 'SUPERVISOR',
             'sla_days' => 2,
@@ -65,10 +76,12 @@ class SpecificationComplianceTest extends TestCase
     {
         $emp = Employee::create([
             'id' => 'e_test', 'full_name' => 'Test', 'hire_date' => now(),
+            'position_id' => 'p1', 'department_id' => 'd1', 'zone_id' => 'z1',
             'is_active' => true,
         ]);
         $sup = Employee::create([
             'id' => 'e_sup', 'full_name' => 'Supervisor', 'hire_date' => now(),
+            'position_id' => 'p1', 'department_id' => 'd1', 'zone_id' => 'z1',
             'is_active' => true,
         ]);
         $line = ReportingLine::create([
@@ -117,8 +130,8 @@ class SpecificationComplianceTest extends TestCase
     /** 9. Improved email notifications configured */
     public function test_notification_preferences_route_exists(): void
     {
-        $routes = array_map(fn ($r) => $r->uri(), \Illuminate\Support\Facades\Route::getRoutes());
-        $this->assertContains('notifications/preferences', $routes);
+        $routes = array_map(fn ($r) => $r->uri(), \Illuminate\Support\Facades\Route::getRoutes()->getRoutes());
+        $this->assertContains('api/notifications/preferences', $routes);
     }
 
     /** 10. Leave types preserved; no data deletion */

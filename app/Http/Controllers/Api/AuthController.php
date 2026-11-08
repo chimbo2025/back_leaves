@@ -24,10 +24,13 @@ class AuthController extends Controller
     {
         $identifier = $request->filled('email') ? $request->input('email') : $request->input('username');
 
+        // Email may be stored on the login or on the employee profile, so both
+        // are matched. Email comparison ignores case; usernames are exact.
         $user = $identifier === null
             ? null
             : User::where('email', $identifier)->first()
-                ?? User::where('username', $identifier)->first();
+                ?? User::where('username', $identifier)->first()
+                ?? User::whereHas('employee', fn ($q) => $q->whereRaw('LOWER(email) = ?', [strtolower((string) $identifier)]))->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
@@ -98,7 +101,7 @@ class AuthController extends Controller
         return [
             'id' => $user->id,
             'username' => $user->username,
-            'email' => $user->email,
+            'email' => $user->email ?? $employee?->email,
             'employee' => $employee ? [
                 'id' => $employee->id,
                 'full_name' => $employee->full_name,

@@ -20,8 +20,8 @@ it('closes the whole lifecycle when the self-service floor is revoked', function
 
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-20',
-        'end_date' => '2026-11-24',
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(34)->toDateString(),
         'reason' => 'Planned break.',
     ], ['Authorization' => "Bearer {$ownerToken}"]);
     $created->assertStatus(201);
@@ -37,8 +37,8 @@ it('closes the whole lifecycle when the self-service floor is revoked', function
     expect($this->postJson("/api/requests/{$requestId}/withdraw", [], $headers)->status())->toBe(403);
     expect($this->putJson("/api/requests/{$requestId}", [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-20',
-        'end_date' => '2026-11-25',
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(35)->toDateString(),
         'reason' => 'Planned break, extended.',
     ], $headers)->status())->toBe(403);
     expect($this->getJson("/api/requests/{$requestId}", $headers)->status())->toBe(403);
@@ -49,8 +49,8 @@ it('shows the inbox only while a step is currently assigned', function () {
 
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-10',
-        'end_date' => '2026-11-14',
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(34)->toDateString(),
         'reason' => 'Annual leave — inbox fixture.',
     ], ['Authorization' => "Bearer {$ownerToken}"]);
     $created->assertStatus(201);

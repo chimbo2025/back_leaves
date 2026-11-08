@@ -26,8 +26,8 @@ function decisionRequest(string $username = 'u7'): LeaveRequest
 
     $created = test()->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-10',
-        'end_date' => '2026-11-14',
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(34)->toDateString(),
         'reason' => 'Annual leave — decision code fixture.',
     ], ['Authorization' => "Bearer {$token}"]);
     $created->assertStatus(201);

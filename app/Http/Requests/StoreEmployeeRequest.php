@@ -25,12 +25,13 @@ class StoreEmployeeRequest extends FormRequest
             'unit_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'independent_unit'))],
             'zone_id' => ['required', Rule::exists('zones', 'id')],
             'gender' => ['nullable', Rule::in(['M', 'F'])],
-            'email' => ['required', 'email', 'max:120', Rule::unique('users', 'email')],
+            'email' => ['nullable', 'email', 'max:120', Rule::unique('users', 'email')],
             'hire_date' => ['required', 'date'],
-            'username' => ['nullable', 'string', 'max:60'],
+            'username' => ['nullable', 'string', 'max:60', Rule::unique('users', 'username')],
             'password' => ['required', 'string', 'min:8', 'regex:/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/'],
             'role_ids' => ['nullable', 'array'],
             'role_ids.*' => ['string', Rule::exists('roles', 'id')],
+            'supervisor_employee_id' => ['nullable', Rule::exists('employees', 'id')],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

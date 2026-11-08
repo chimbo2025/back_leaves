@@ -16,7 +16,8 @@ class UpdateWorkflowRequest extends FormRequest
     {
         return [
             'min_duration_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
-            'department_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->whereIn('unit_type', ['department', 'office', 'coordination_office', 'regional_office', 'executive_leadership']))],
+            'zone_id' => ['sometimes', 'nullable', Rule::exists('zones', 'id')],
+            'department_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')],
             'effective_from' => ['sometimes', 'date'],
             'effective_to' => ['sometimes', 'nullable', 'date'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:500'],
@@ -25,6 +26,9 @@ class UpdateWorkflowRequest extends FormRequest
             // Dynamic approval-role catalog replaces hard-coded role strings.
             'steps.*.approval_role_id' => ['nullable', Rule::exists('approval_roles', 'id')],
             'steps.*.fallback_approval_role_id' => ['nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.fallback_role_id' => ['nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.assignment_mode' => ['sometimes', Rule::in(['shared_queue', 'assigned_approver'])],
+            'steps.*.scope_type' => ['sometimes', Rule::in(['requester_department', 'requester_division', 'requester_unit', 'requester_zone', 'office_wide'])],
             // Legacy pointer, kept so pre-catalog definitions remain writable.
             'steps.*.role_required' => ['nullable', Rule::exists('roles', 'id')],
             'steps.*.sla_days' => ['required_with:steps', 'integer', 'min:0', 'max:90'],

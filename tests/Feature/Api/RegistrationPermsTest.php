@@ -29,7 +29,7 @@ it('admin registers a staff member with a login, roles and reporting line', func
         'email' => 'amina.yusuf@dpp.go.tz',
         'hire_date' => '2026-09-01',
         'username' => 'amina',
-        'password' => 'secret99',
+        'password' => 'Password123',
         'role_ids' => ['SUPERVISOR'],
         'supervisor_employee_id' => 'e6',
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201)->json('data');
@@ -41,7 +41,7 @@ it('admin registers a staff member with a login, roles and reporting line', func
     expect(ReportingLine::where('employee_id', 'e13')->value('supervisor_employee_id'))->toBe('e6');
 
     // The registered account can log in with its own credentials.
-    $this->postJson('/api/login', ['username' => 'amina', 'password' => 'secret99'])
+    $this->postJson('/api/login', ['username' => 'amina', 'password' => 'Password123'])
         ->assertOk()
         ->assertJsonPath('user.username', 'amina');
 
@@ -49,9 +49,12 @@ it('admin registers a staff member with a login, roles and reporting line', func
     $this->getJson('/api/audit/verify', ['Authorization' => "Bearer {$admin}"])->assertJsonPath('data.valid', true);
 });
 
-it('defaults role grants from the position when role_ids are omitted', function () {
+it('does not mint role grants when role_ids are omitted', function () {
     $admin = apiLogin('u1');
 
+    // The organization refactor made positions job titles only; they no
+    // longer carry default roles, so registration grants exactly what the
+    // admin ticked (nothing, here).
     $res = $this->postJson('/api/org/employees', [
         'full_name' => 'Juma Ali Bakari',
         'position_id' => 'p8',
@@ -59,11 +62,10 @@ it('defaults role grants from the position when role_ids are omitted', function 
         'zone_id' => 'z1',
         'hire_date' => '2026-09-01',
         'username' => 'juma.b',
-        'password' => 'secret99',
+        'password' => 'Password123',
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201)->json('data');
 
-    expect(EmployeeRole::where('employee_id', $res['id'])->pluck('role_id')->all())->toBe(['SUPERVISOR']);
-    expect(EmployeeRole::where('employee_id', $res['id'])->value('source'))->toBe('position_default');
+    expect(EmployeeRole::where('employee_id', $res['id'])->count())->toBe(0);
 });
 
 it('only a user with admin.create may register staff', function () {
@@ -76,7 +78,7 @@ it('only a user with admin.create may register staff', function () {
         'zone_id' => 'z1',
         'hire_date' => '2026-09-01',
         'username' => 'nope',
-        'password' => 'secret99',
+        'password' => 'Password123',
     ], ['Authorization' => "Bearer {$supervisor}"])->assertStatus(403);
 });
 
@@ -90,7 +92,7 @@ it('rejects duplicate usernames with a 422', function () {
         'zone_id' => 'z1',
         'hire_date' => '2026-09-01',
         'username' => 'u3',
-        'password' => 'secret99',
+        'password' => 'Password123',
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(422);
 });
 
@@ -200,7 +202,7 @@ it('still resolves approvals after registering a new staff member', function () 
         'zone_id' => 'z1',
         'hire_date' => '2026-09-01',
         'username' => 'farida',
-        'password' => 'secret99',
+        'password' => 'Password123',
         'role_ids' => ['SUPERVISOR'],
         'supervisor_employee_id' => 'e6',
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201);
@@ -333,12 +335,16 @@ it('enforces a dynamic role immediately and drops the codes when it is deleted',
     $this->getJson('/api/reports/zone', ['Authorization' => "Bearer {$reporter}"])->assertOk();
 });
 
-it('stops honouring an archived role for scope and workflow assignment', function () {
+it('stops honouring an archived role for organizational scope', function () {
     // Archiving must not leave a holder able to read the zone their archived
-    // role pointed at, nor able to satisfy an approval step, because the
-    // employee_roles row still carries scope_zone_id even once it grants nothing.
-    // The zone is deliberately not the holder's own, so this role is the only
-    // thing contributing it and the assertion cannot pass by coincidence.
+    // role pointed at, because the employee_roles row still carries
+    // scope_zone_id even once it grants nothing. The zone is deliberately not
+    // the holder's own, so this role is the only thing contributing it and the
+    // assertion cannot pass by coincidence.
+    //
+    // Workflow authority is deliberately NOT asserted here: after the
+    // organization refactor it comes from employee_approval_roles, not from
+    // permission roles, so archiving a permission role has no workflow effect.
     $hr = apiLogin('u3');
 
     $this->postJson('/api/roles', [
@@ -357,38 +363,16 @@ it('stops honouring an archived role for scope and workflow assignment', functio
 
     $user = Employee::findOrFail('e6')->user;
     $scope = app(AccessScopeService::class);
-    $resolver = app(WorkflowResolver::class);
-
-    // A requester inside z3 who is not the holder, so the resolver has someone
-    // to find rather than bailing out on the never-approve-yourself rule. No
-    // seeded employee sits in z3, so register one.
-    $this->postJson('/api/org/employees', [
-        'full_name' => 'Zonet Three Requester',
-        'username' => 'zone3req',
-        'password' => 'password',
-        'email' => 'zone3.requester@dpp.go.tz',
-        'position_id' => 'p1',
-        'department_id' => 'd2',
-        'zone_id' => 'z3',
-        'gender' => 'F',
-        'hire_date' => '2026-10-01',
-        'role_ids' => ['SELF_SERVICE'],
-    ], ['Authorization' => "Bearer {$hr}"])->assertStatus(201);
-
-    $requester = Employee::whereHas('user', fn ($q) => $q->where('username', 'zone3req'))->firstOrFail();
 
     $before = $scope->forUser($user, 'reports');
     expect($before->allowedZoneIds)->toContain('z3');
-    expect($resolver->resolveApprover($requester, 'ROLE_FOREIGN_SCOPE')['assignee']?->id)->toBe('e6');
 
     $this->deleteJson('/api/roles/ROLE_FOREIGN_SCOPE', [], ['Authorization' => "Bearer {$hr}"])->assertOk();
 
     expect($scope->forUser($user, 'reports')->allowedZoneIds)->not->toContain('z3');
-    expect($resolver->resolveApprover($requester, 'ROLE_FOREIGN_SCOPE')['assignee'])->toBeNull();
 
     $this->postJson('/api/roles/ROLE_FOREIGN_SCOPE/restore', [], ['Authorization' => "Bearer {$hr}"])->assertOk();
     expect($scope->forUser($user, 'reports')->allowedZoneIds)->toContain('z3');
-    expect($resolver->resolveApprover($requester, 'ROLE_FOREIGN_SCOPE')['assignee']?->id)->toBe('e6');
 });
 
 it('leaves delegations and workflow assignments intact when a role is archived', function () {
@@ -543,7 +527,7 @@ it('archives a system role instead of refusing, and restores it', function () {
     $this->postJson('/api/org/employees', [
         'full_name' => 'Peter Only Self',
         'username' => 'selfonly',
-        'password' => 'password',
+        'password' => 'Password123',
         'email' => 'peter.onlyself@dpp.go.tz',
         'position_id' => 'p1',
         'department_id' => 'd2',
@@ -553,7 +537,7 @@ it('archives a system role instead of refusing, and restores it', function () {
         'role_ids' => ['SELF_SERVICE'],
     ], ['Authorization' => "Bearer {$hr}"])->assertStatus(201);
 
-    $token = apiLogin('selfonly');
+    $token = apiLogin('selfonly', 'Password123');
 
     $this->deleteJson('/api/roles/SELF_SERVICE', [], ['Authorization' => "Bearer {$hr}"])->assertOk();
 

@@ -7,6 +7,7 @@ use App\Models\LeavePaymentCase;
 use App\Models\User;
 use App\Services\AccessScopeService;
 use App\Services\LeavePaymentCaseService;
+use App\Services\LeavePaymentReportService;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,6 +39,7 @@ class LeavePaymentController extends Controller
     public function __construct(
         protected LeavePaymentCaseService $payments,
         protected PermissionService $permissions,
+        protected LeavePaymentReportService $paymentReports,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -47,6 +49,13 @@ class LeavePaymentController extends Controller
         $user = $request->user();
 
         $query = LeavePaymentCase::query()->with(['employee', 'leaveType']);
+
+        // Finance only receives cases HR has sent for settlement (plus cases
+        // already in processing/paid). General leave requests and unreviewed
+        // payment cases are not part of the Accounting work queue.
+        if ($this->paymentReports->audienceFor($user) === LeavePaymentReportService::AUDIENCE_ACCOUNTING) {
+            $query->whereIn('status', LeavePaymentReportService::ACCOUNTING_STATUSES);
+        }
 
         if (! $this->permissions->can($user, 'leave_payments', 'view_cross_zone')) {
             $employeeId = $user->employee?->id;

@@ -417,8 +417,8 @@ it('notifies the first approver when a request is submitted through the API', fu
     $token = apiLogin('u3');
     $created = $this->postJson('/api/requests', [
         'leave_type_id' => 'lt1',
-        'start_date' => '2026-11-10',
-        'end_date' => '2026-11-14',
+        'start_date' => now()->addDays(30)->toDateString(),
+        'end_date' => now()->addDays(34)->toDateString(),
         'reason' => 'Annual leave — planned.',
     ], p4Headers($token))->assertStatus(201);
 

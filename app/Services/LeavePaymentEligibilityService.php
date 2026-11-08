@@ -37,6 +37,7 @@ class LeavePaymentEligibilityService
     public function __construct(
         protected LeavePolicyResolver $resolver,
         protected LeavePurchaseService $purchase,
+        protected PolicyService $policy,
     ) {}
 
     /**
@@ -127,6 +128,18 @@ class LeavePaymentEligibilityService
                     ? 'The leave type is a paid entitlement.'
                     : 'The leave type is unpaid and cannot be encashed.',
             );
+
+            if ($leaveType->code === 'ANNUAL' && $request instanceof LeaveRequest) {
+                $ordinal = $this->policy->annualRequestOrdinal($request);
+                $paidCycle = $ordinal !== null && $ordinal % 2 === 0;
+                $add(
+                    'annual_request_paid_cycle',
+                    $paidCycle,
+                    $paidCycle
+                        ? "Annual leave request #{$ordinal} in this service year is eligible for payment review."
+                        : 'Only every second approved annual-leave request in the service year is eligible for payment review.',
+                );
+            }
 
             // 8. statutory maternity/paternity are excluded from encashment
             $statutory = in_array($leaveType->code, ['MATERNITY', 'PATERNITY'], true);

@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
  * - Create export record with filters and scope snapshot
  * - Generate CSV/PDF content
  * - Store in private storage
- * - Generate temporary download URLs
+ * - Stream stored files to authorized users
  * - Handle expiry, cancellation, and cleanup
  * - Audit events
  */
@@ -120,9 +120,11 @@ class ReportExportService
     }
 
     /**
-     * Download an export (creates temporary signed URL).
+     * Authorize and audit a download, then return the stored file so the
+     * controller can stream it. The local disk cannot mint temporary URLs, and
+     * streaming keeps the bearer-token auth on the request.
      *
-     * @return array{url:string,expires_in:int}
+     * @return array{disk:string,path:string,name:string,mime:string}
      */
     public function download(ReportExport $export, Employee $downloader): array
     {
@@ -134,19 +136,16 @@ class ReportExportService
 
         $this->authorizeDownload($downloader, $export);
 
-        $url = Storage::disk($export->file_disk)->temporaryUrl(
-            $export->file_path,
-            now()->addMinutes(SecureDocumentService::DOWNLOAD_TTL)
-        );
-
         $this->audit->append('report_export', (string) $export->id, 'export.downloaded', $downloader->user_id, [
             'report_type' => $export->report_type,
             'format' => $export->format,
         ]);
 
         return [
-            'url' => $url,
-            'expires_in' => SecureDocumentService::DOWNLOAD_TTL * 60,
+            'disk' => $export->file_disk,
+            'path' => $export->file_path,
+            'name' => basename($export->file_path),
+            'mime' => $export->format === ReportExport::FORMAT_PDF ? 'application/pdf' : 'text/csv',
         ];
     }
 
@@ -280,23 +279,58 @@ class ReportExportService
 
     protected function toPdf(string $reportType, array $data): string
     {
-        $html = $this->renderer->renderPreview('report', [
-            'report_type' => $reportType,
-            'data' => $data,
-            'generated_at' => now()->toIso8601String(),
-            'title' => $this->reportTitle($reportType),
-        ]);
-
-        if (class_exists(Dompdf::class)) {
-            $pdf = new Dompdf;
-            $pdf->loadHtml($html);
-            $pdf->setPaper('A4', 'landscape');
-            $pdf->render();
-
-            return $pdf->output();
+        if (! class_exists(Dompdf::class)) {
+            throw new \RuntimeException('PDF export requires the dompdf library.');
         }
 
-        return $html;
+        $pdf = new Dompdf(['defaultFont' => 'DejaVu Sans', 'isRemoteEnabled' => false]);
+        $pdf->loadHtml($this->reportHtml($reportType, $data));
+        $pdf->setPaper('A4', 'landscape');
+        $pdf->render();
+
+        return $pdf->output();
+    }
+
+    /**
+     * Printable table of every row behind the report. Rows are the individual
+     * records, so the PDF can be checked against the CSV export one-to-one.
+     */
+    protected function reportHtml(string $reportType, array $data): string
+    {
+        $esc = fn ($value) => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $rows = array_values(array_filter($data, fn ($row) => $row !== []));
+        $headers = $rows === [] ? [] : array_keys($rows[0]);
+
+        $head = implode('', array_map(fn ($h) => '<th>'.$esc(str_replace('_', ' ', (string) $h)).'</th>', $headers));
+        $body = '';
+        foreach ($rows as $row) {
+            $cells = '';
+            foreach ($headers as $h) {
+                $value = $row[$h] ?? '';
+                $value = is_array($value) ? json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : $value;
+                $cells .= '<td>'.$esc($value).'</td>';
+            }
+            $body .= '<tr>'.$cells.'</tr>';
+        }
+        if ($body === '') {
+            $body = '<tr><td>No rows match these filters.</td></tr>';
+        }
+
+        $title = $esc($this->reportTitle($reportType));
+        $generated = $esc(now()->format('Y-m-d H:i'));
+        $count = count($rows);
+
+        return '<!doctype html><html><head><meta charset="utf-8"><style>'
+            .'@page{margin:18mm 12mm;} body{font-family:DejaVu Sans,sans-serif;font-size:8.5px;color:#14202B;}'
+            .'h1{font-size:15px;margin:0 0 4px;color:#0F5C54;} .meta{color:#4A5A66;margin-bottom:10px;}'
+            .'table{width:100%;border-collapse:collapse;} th{background:#EDF1F3;text-align:left;padding:4px;border:1px solid #AEBAC2;}'
+            .'td{padding:3px 4px;border:1px solid #C9D2D8;vertical-align:top;word-break:break-word;} tr{page-break-inside:avoid;}'
+            .'thead{display:table-header-group;}'
+            .'</style></head><body>'
+            .'<h1>'.$title.'</h1>'
+            .'<div class="meta">Generated '.$generated.' · '.$count.' row'.($count === 1 ? '' : 's').'</div>'
+            .'<table><thead><tr>'.$head.'</tr></thead><tbody>'.$body.'</tbody></table>'
+            .'</body></html>';
     }
 
     protected function reportTitle(string $reportType): string

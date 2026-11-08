@@ -5,10 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreWorkflowRequest;
 use App\Http\Requests\UpdateWorkflowRequest;
+use App\Models\Employee;
+use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\WorkflowDefinition;
 use App\Models\WorkflowStep;
 use App\Services\AuditService;
+use App\Services\WorkflowResolver;
 use Illuminate\Http\JsonResponse;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -42,11 +47,21 @@ class WorkflowController extends Controller
             throw ValidationException::withMessages(['effective_to' => 'Effective-to must be on or after effective-from.']);
         }
 
+        $this->guardNoOverlap(
+            $form->input('leave_type_id'),
+            $form->input('zone_id'),
+            $form->input('department_id'),
+            $from,
+            $to,
+            null
+        );
+
         $def = WorkflowDefinition::create([
             'id' => $id,
             'leave_type_id' => $form->input('leave_type_id'),
             'version' => $version,
             'min_duration_days' => (int) ($form->input('min_duration_days', 0)),
+            'zone_id' => $form->input('zone_id'),
             'department_id' => $form->input('department_id'),
             'effective_from' => $from,
             'effective_to' => $to,
@@ -84,9 +99,19 @@ class WorkflowController extends Controller
             $this->guardOtherActiveExists($workflowDefinition);
         }
 
+        $this->guardNoOverlap(
+            $workflowDefinition->leave_type_id,
+            $form->input('zone_id', $workflowDefinition->zone_id),
+            $form->input('department_id', $workflowDefinition->department_id),
+            $from,
+            $to,
+            $workflowDefinition->id
+        );
+
         $patch = [
             'version' => $version,
             'min_duration_days' => (int) $form->input('min_duration_days', $workflowDefinition->min_duration_days),
+            'zone_id' => $form->input('zone_id', $workflowDefinition->zone_id),
             'department_id' => $form->input('department_id', $workflowDefinition->department_id),
             'effective_from' => $from,
             'effective_to' => $to,
@@ -176,7 +201,9 @@ class WorkflowController extends Controller
                 'workflow_def_id' => $def->id,
                 'step_order' => $i + 1,
                 'approval_role_id' => $step['approval_role_id'] ?? null,
-                'fallback_approval_role_id' => $step['fallback_approval_role_id'] ?? null,
+                'fallback_approval_role_id' => $step['fallback_approval_role_id'] ?? $step['fallback_role_id'] ?? null,
+            'assignment_mode' => $step['assignment_mode'] ?? 'assigned_approver',
+            'scope_type' => $step['scope_type'] ?? 'requester_department',
                 // Legacy compatibility: pre-catalog definitions still carry a
                 // permission role id. New definitions send approval_role_id.
                 'role_required' => $step['role_required'] ?? null,
@@ -187,6 +214,88 @@ class WorkflowController extends Controller
                 'escalation_after_sla' => (bool) ($step['escalation_after_sla'] ?? true),
                 'note' => $step['note'] ?? null,
             ]);
+        }
+    }
+
+    public function preview(Request $request): JsonResponse
+    {
+        $employee = Employee::find($request->input('employee_id'));
+        $leaveType = LeaveType::find($request->input('leave_type_id'));
+        $days = (int) $request->input('days', 1);
+        $effectiveDate = $request->input('effective_date', now()->toDateString());
+
+        if (! $employee || ! $leaveType) {
+            throw ValidationException::withMessages([
+                'employee_id' => 'Employee and leave type are required.',
+            ]);
+        }
+
+        $synthetic = new LeaveRequest([
+            'employee_id' => $employee->id,
+            'leave_type_id' => $leaveType->id,
+            'days' => $days,
+            'start_date' => $effectiveDate,
+            'end_date' => $effectiveDate,
+            'status' => 'draft',
+        ]);
+        $synthetic->setRelation('employee', $employee);
+        $synthetic->submitted_at = Carbon::parse($effectiveDate);
+
+        $resolver = resolve(WorkflowResolver::class);
+        $def = $resolver->resolveDefinition($synthetic);
+        $chain = $def ? $resolver->resolveWorkflow($synthetic) : [];
+
+        return response()->json([
+            'data' => [
+                'resolved_workflow' => $def ? [
+                    'id' => $def->id,
+                    'version' => $def->version,
+                    'leave_type_id' => $def->leave_type_id,
+                    'zone_id' => $def->zone_id,
+                    'department_id' => $def->department_id,
+                    'min_duration_days' => $def->min_duration_days,
+                ] : null,
+                'steps' => collect($chain)->map(fn ($e) => [
+                    'step_id' => $e['step_id'] ?? null,
+                    'role' => $e['role'] ?? null,
+                    'role_label' => $e['role_label'] ?? null,
+                    'assignment_mode' => $e['assignment_mode'] ?? 'assigned_approver',
+                    'assignee_id' => $e['assignee_id'] ?? null,
+                    'assignee_name' => $e['assignee_name'] ?? null,
+                    'via' => $e['via'] ?? null,
+                ])->values(),
+                'conflict' => $def === null,
+            ],
+        ]);
+    }
+
+    protected function guardNoOverlap(string $leaveTypeId, ?string $zoneId, ?string $departmentId, ?string $from, ?string $to, ?string $excludeId): void
+    {
+        $query = WorkflowDefinition::where('leave_type_id', $leaveTypeId)
+            ->where('is_active', true)
+            ->where('zone_id', $zoneId)
+            ->where('department_id', $departmentId);
+
+        if ($excludeId) {
+            $query->where('id', '<>', $excludeId);
+        }
+
+        foreach ($query->get() as $existing) {
+            $eFrom = $existing->effective_from?->toDateString();
+            $eTo = $existing->effective_to?->toDateString();
+            // Overlap check on effective periods.
+            // Only block exact duplicate coverage (same effective period and
+            // same minimum duration) so legitimate versioning (overlapping but
+            // distinct effective periods) remains possible.
+            $start = $from ?? '0000-01-01';
+            $end = $to ?? '9999-12-31';
+            $eStart = $eFrom ?? '0000-01-01';
+            $eEnd = $eTo ?? '9999-12-31';
+            if ($start === $eStart && $end === $eEnd) {
+                throw ValidationException::withMessages([
+                    'workflow' => 'Another active workflow already covers this leave type, duration range, and organizational scope. Resolve the overlap before saving.',
+                ]);
+            }
         }
     }
 }

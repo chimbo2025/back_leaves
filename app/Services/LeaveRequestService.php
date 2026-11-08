@@ -11,6 +11,7 @@ use App\Models\Delegation;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
 use App\Models\LeaveRequestDate;
+use App\Models\LeaveType;
 use App\Models\WorkflowAssignment;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -115,9 +116,12 @@ class LeaveRequestService
             $elig = app(LeaveEligibilityService::class)->check($employee, $request->leave_type_id, $request->start_date->toDateString(), $request->end_date?->toDateString(), [
                 'is_emergency_exception' => (bool) $request->is_emergency_exception,
             ]);
+            $resolvedDef = $this->resolver->resolveDefinition($request);
+
             $request->update([
                 'policy_id' => $policy->id,
                 'policy_version' => $policy->version,
+                'workflow_version' => $resolvedDef?->version,
                 'policy_snapshot' => $policy->toArray(),
                 'eligibility_checked_at' => now(),
                 'eligibility_blockers' => $elig['blockers'],
@@ -134,31 +138,31 @@ class LeaveRequestService
                 throw ValidationException::withMessages(['workflow' => 'No approver could be resolved for this request. Contact HR.']);
             }
             $request->assignments()->delete();
+            $firstAssignment = null;
             foreach ($chain as $entry) {
-                if (! $entry['assignee_id']) {
+                $isShared = ($entry['assignment_mode'] ?? 'assigned_approver') === 'shared_queue';
+                if (! $isShared && ! $entry['assignee_id']) {
                     continue;
                 }
-                WorkflowAssignment::create([
+                $assignment = WorkflowAssignment::create([
                     'request_id' => $request->id,
                     'step_id' => $entry['step_id'],
                     'assigned_employee_id' => $entry['assignee_id'],
                     'assigned_role_id' => $entry['role'],
-                    'status' => 'pending',
+                    'status' => $firstAssignment === null ? 'pending' : 'queued',
                     'due_at' => $entry['due_at'],
                 ]);
+                $firstAssignment ??= $assignment;
             }
 
-            $first = $request->assignments()->where('status', 'pending')->orderBy('id')->first();
+            $first = $firstAssignment;
             $request->update([
                 'status' => $first ? 'under_review' : 'submitted',
                 'current_owner_id' => $first?->assigned_employee_id,
             ]);
 
-            if ($first) {
+            if ($first && $first->assignee) {
                 event(new LeaveRequestSubmitted($request, $first->assignee));
-            }
-            foreach ($request->assignments->where('assigned_employee_id', '!=', $first?->assigned_employee_id) as $wa) {
-                $this->notifications->notify($wa->assigned_employee_id, 'submitted', "A step for {$request->ref} has been assigned to you.", 'in_system', 'workflow_assignment', $wa->id);
             }
 
             $this->audit->append('leave_request', (string) $request->id, 'submit', $actorUserId, [
@@ -192,9 +196,12 @@ class LeaveRequestService
             $elig = app(LeaveEligibilityService::class)->check($request->employee, $request->leave_type_id, $request->start_date->toDateString(), $request->end_date?->toDateString(), [
                 'is_emergency_exception' => (bool) $request->is_emergency_exception,
             ]);
+            $resolvedDef = $this->resolver->resolveDefinition($request);
+
             $request->update([
                 'policy_id' => $policy?->id,
                 'policy_version' => $policy?->version,
+                'workflow_version' => $resolvedDef?->version,
                 'policy_snapshot' => $policy ? $policy->toArray() : null,
                 'eligibility_checked_at' => now(),
                 'eligibility_blockers' => $elig['blockers'],
@@ -207,10 +214,13 @@ class LeaveRequestService
             $this->storeDates($request);
 
             $chain = $this->resolver->resolveWorkflow($request);
-            // Keep approved steps; archive leftover skipped/pending, then re-create.
+            // Keep approved steps; archive leftover pending/queued steps, then
+            // re-create unresolved steps with only the next approver pending.
             $request->assignments()->where('status', '!=', 'done')->update(['status' => 'skipped']);
+            $firstAssignment = null;
             foreach ($chain as $entry) {
-                if (! $entry['assignee_id']) {
+                $isShared = ($entry['assignment_mode'] ?? 'assigned_approver') === 'shared_queue';
+                if (! $isShared && ! $entry['assignee_id']) {
                     continue;
                 }
                 $already = WorkflowAssignment::where('request_id', $request->id)
@@ -220,17 +230,21 @@ class LeaveRequestService
                 if ($already) {
                     continue;
                 }
-                $request->assignments()->create([
+                $assignment = $request->assignments()->create([
                     'step_id' => $entry['step_id'],
                     'assigned_employee_id' => $entry['assignee_id'],
                     'assigned_role_id' => $entry['role'],
-                    'status' => 'pending',
+                    'status' => $firstAssignment === null ? 'pending' : 'queued',
                     'due_at' => $entry['due_at'],
                 ]);
+                $firstAssignment ??= $assignment;
             }
 
-            $first = $request->assignments()->where('status', 'pending')->orderBy('id')->first();
+            $first = $firstAssignment;
             $request->update(['status' => 'under_review', 'current_owner_id' => $first?->assigned_employee_id]);
+            if ($first && $first->assignee) {
+                event(new LeaveRequestSubmitted($request, $first->assignee));
+            }
             $this->audit->append('leave_request', (string) $request->id, 'resubmit', $actorUserId, ['ref' => $request->ref]);
         });
 
@@ -250,15 +264,12 @@ class LeaveRequestService
         }
 
         $pending = $request->assignments()
-            ->where('status', 'pending')
+            ->whereIn('status', ['pending', 'queued'])
             ->orderBy('id')
             ->get();
 
-        if ($decision === 'approved' && $endDate) {
-            $this->validateApprovedPeriod($request, $endDate);
-        }
-
         $current = $pending->first();
+        $pendingLeft = $pending->slice(1);
 
         // Only the head of the chain is decidable. Matching any pending
         // assignment the actor happens to hold let an approver jump the queue:
@@ -267,13 +278,65 @@ class LeaveRequestService
         // request skipped a reviewer entirely. This ownership check runs first
         // so a stranger still hears "not assigned to you" (422), not a
         // permission error.
-        if (! $current || $current->assigned_employee_id !== $actor->id) {
-            $hasPending = $pending->isNotEmpty();
+        if (! $current) {
             throw ValidationException::withMessages([
-                'authorization' => $hasPending
-                    ? 'This step is not assigned to you — you cannot decide it.'
-                    : 'There are no pending steps to decide.',
+                'authorization' => 'There are no pending steps to decide.',
             ]);
+        }
+
+        $isSharedQueue = $current->step && ($current->step->assignment_mode ?? 'assigned_approver') === 'shared_queue';
+
+        if ($isSharedQueue) {
+            // Verify the actor is an eligible holder of the role within scope.
+            $resolver = app(WorkflowResolver::class);
+            $holders = $resolver->eligibleHolders($request->employee, $current->assigned_role_id, $current->step->scope_type ?? 'requester_department');
+            $eligible = $holders->contains('id', $actor->id);
+            // Delegation: an active delegate of an eligible holder may also act.
+            if (! $eligible) {
+                $eligible = Delegation::where('delegate_employee_id', $actor->id)
+                    ->where('approval_role_id', $current->assigned_role_id)
+                    ->where('active', true)
+                    ->whereDate('start_date', '<=', now()->toDateString())
+                    ->whereDate('end_date', '>=', now()->toDateString())
+                    ->exists();
+            }
+            if (! $eligible) {
+                throw ValidationException::withMessages([
+                    'authorization' => 'This step is not assigned to you — you cannot decide it.',
+                ]);
+            }
+        } else {
+            // Assigned approver mode: ownership or active delegation.
+            $isDelegate = Delegation::where('delegate_employee_id', $actor->id)
+                ->where('role_id', $current->assigned_role_id)
+                ->where('active', true)
+                ->whereDate('start_date', '<=', now()->toDateString())
+                ->whereDate('end_date', '>=', now()->toDateString())
+                ->exists();
+            if ($current->assigned_employee_id !== $actor->id && ! $isDelegate) {
+                $hasPending = $pending->isNotEmpty();
+                throw ValidationException::withMessages([
+                    'authorization' => $hasPending
+                        ? 'This step is not assigned to you — you cannot decide it.'
+                        : 'There are no pending steps to decide.',
+                ]);
+            }
+        }
+
+        // Self-approval guard.
+        if ($actor->id === $request->employee_id) {
+            throw ValidationException::withMessages([
+                'authorization' => 'You cannot approve your own request.',
+            ]);
+        }
+
+        if ($decision === 'approved' && $endDate) {
+            if ($pendingLeft->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'end_date' => 'Only the final approver may set the return date and leave duration.',
+                ]);
+            }
+            $this->validateApprovedPeriod($request, $endDate);
         }
 
         // Capability AND ownership: assignment alone no longer bypasses the
@@ -288,7 +351,10 @@ class LeaveRequestService
         // the role), and delegates need hold no role codes of their own.
         // The signature ceremony on approvals still applies to everyone.
         $delegated = Delegation::where('delegate_employee_id', $actor->id)
-            ->where('role_id', $current->assigned_role_id)
+            ->where(function ($q) use ($current) {
+                $q->where('role_id', $current->assigned_role_id)
+                    ->orWhere('approval_role_id', $current->assigned_role_id);
+            })
             ->where('active', true)
             ->whereDate('start_date', '<=', now()->toDateString())
             ->whereDate('end_date', '>=', now()->toDateString())
@@ -311,8 +377,6 @@ class LeaveRequestService
         }
 
         $mine = $current;
-        $pendingLeft = $pending->slice(1);
-
         $isFinalStep = $pendingLeft->isEmpty();
 
         // The return date is decided by the approver: required to finalize an
@@ -322,7 +386,13 @@ class LeaveRequestService
         }
 
         return DB::transaction(function () use ($request, $actor, $decision, $comments, $endDate, $mine, $signature) {
-            $mine->update(['status' => 'done', 'decided_at' => now()]);
+            $updated = WorkflowAssignment::where('id', $mine->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'done', 'decided_at' => now()]);
+            if ($updated === 0) {
+                throw ValidationException::withMessages(['authorization' => 'This step has already been decided.']);
+            }
+            $mine->refresh();
             $action = ApprovalAction::create([
                 'assignment_id' => $mine->id,
                 'actor_employee_id' => $actor->id,
@@ -371,7 +441,7 @@ class LeaveRequestService
         $employee = $request->employee;
 
         if ($decision === 'rejected') {
-            $request->assignments()->where('status', 'pending')->update(['status' => 'skipped']);
+            $request->assignments()->whereIn('status', ['pending', 'queued'])->update(['status' => 'skipped']);
             $request->update(['status' => 'rejected', 'decided_at' => now(), 'current_owner_id' => null]);
             $this->caseService->closeDockets($request);
             event(new LeaveRequestRejected($request, $actor, $comments));
@@ -380,7 +450,7 @@ class LeaveRequestService
         }
 
         if ($decision === 'returned') {
-            $request->assignments()->where('status', 'pending')->update(['status' => 'skipped']);
+            $request->assignments()->whereIn('status', ['pending', 'queued'])->update(['status' => 'skipped']);
             $request->update(['status' => 'returned_for_correction', 'current_owner_id' => null]);
             event(new LeaveRequestReturned($request, $comments));
 
@@ -388,8 +458,9 @@ class LeaveRequestService
         }
 
         // approved path
-        $next = $request->assignments()->where('status', 'pending')->orderBy('id')->first();
+        $next = $request->assignments()->whereIn('status', ['queued', 'pending'])->orderBy('id')->first();
         if ($next) {
+            $next->update(['status' => 'pending']);
             $request->update(['current_owner_id' => $next->assigned_employee_id]);
             $this->notifications->notify($next->assigned_employee_id, 'submitted', "{$request->ref} advanced to your step ({$next->assigned_role_id}).", relatedEntityType: 'workflow_assignment', relatedEntityId: $next->id);
 
@@ -448,7 +519,7 @@ class LeaveRequestService
     public function withdraw(LeaveRequest $request, ?string $actorUserId = null): LeaveRequest
     {
         DB::transaction(function () use ($request, $actorUserId) {
-            $request->assignments()->where('status', 'pending')->update(['status' => 'skipped']);
+            $request->assignments()->whereIn('status', ['pending', 'queued'])->update(['status' => 'skipped']);
             $request->update(['status' => 'withdrawn', 'current_owner_id' => null]);
             $this->audit->append('leave_request', (string) $request->id, 'withdraw', $actorUserId, ['ref' => $request->ref]);
         });
@@ -529,6 +600,19 @@ class LeaveRequestService
         $days = $this->policy->dayCount($start, $endDate);
         if ($policy && (float) $policy->max_days_per_request > 0 && $days > (float) $policy->max_days_per_request) {
             throw ValidationException::withMessages(['end_date' => "Return date gives {$days} days, exceeding the {$policy->max_days_per_request}-day maximum for this leave type."]);
+        }
+
+        // Annual leave cannot be granted beyond the shared service-year bank.
+        // Other approved leave types also consume that bank, but may still be
+        // approved when the bank is exhausted (the annual balance bottoms at 0).
+        $annualType = LeaveType::where('code', 'ANNUAL')->first();
+        if ($annualType && $request->leave_type_id === $annualType->id) {
+            $annualBalance = $this->policy->balanceFor($request->employee_id, $annualType->id);
+            if ($days > $annualBalance['remaining']) {
+                throw ValidationException::withMessages([
+                    'end_date' => "This duration exceeds the {$annualBalance['remaining']}-day shared annual balance after other leave taken in this service year.",
+                ]);
+            }
         }
 
         $overlap = LeaveRequest::query()
