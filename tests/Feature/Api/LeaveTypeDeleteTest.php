@@ -27,6 +27,7 @@ it('deletes an unused leave type with its policies and workflow', function () {
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201);
 
     $wf = $this->postJson('/api/workflows', [
+        'workflow_title' => 'Pilgrimage Leave — Standard',
         'leave_type_id' => $type['id'],
         'steps' => [['role_required' => 'HR', 'sla_days' => 2, 'note' => 'Hajj compliance.']],
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201)->json('data');

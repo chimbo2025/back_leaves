@@ -253,6 +253,8 @@ class LeavePaymentReportService
                 'employee' => [
                     'id' => $employee->id,
                     'full_name' => $employee->full_name,
+                    'initials' => $employee->initials,
+                    'avatar_initials' => $employee->avatar_initials,
                     'department' => $employee->department ? [
                         'id' => $employee->department->id,
                         'name' => $employee->department->name,

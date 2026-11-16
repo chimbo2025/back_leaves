@@ -13,7 +13,8 @@ class WorkflowDefinition extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'id', 'leave_type_id', 'version', 'min_duration_days', 'zone_id', 'department_id',
+        'id', 'workflow_title', 'leave_type_id', 'version', 'min_duration_days', 'max_duration_days',
+        'zone_id', 'department_id',
         'effective_from', 'effective_to', 'created_by', 'approved_by', 'notes', 'is_active',
     ];
 
@@ -23,6 +24,9 @@ class WorkflowDefinition extends Model
             'effective_from' => 'date:Y-m-d',
             'effective_to' => 'date:Y-m-d',
             'is_active' => 'boolean',
+            'version' => 'integer',
+            'min_duration_days' => 'integer',
+            'max_duration_days' => 'integer',
         ];
     }
 

@@ -323,7 +323,7 @@ class WorkflowResolver
         return $this->findDefinition($request->employee, $request);
     }
 
-    /** @var array{step_id: int, role: string, role_label: string, assignee_id: ?string, assignee_name: ?string, via: string, sla_days: int, due_at: string, note: ?string, assignment_mode: string} */
+    /** @var array{step_id: int, role: string, role_label: string, assignee_id: ?string, assignee_name: ?string, assignee_initials: ?string, via: string, sla_days: int, due_at: string, note: ?string, assignment_mode: string} */
     public function resolveWorkflow(LeaveRequest $request): array
     {
         $employee = $request->employee;
@@ -375,6 +375,7 @@ class WorkflowResolver
                         'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
                         'assignee_id' => null,
                         'assignee_name' => null,
+                        'assignee_initials' => null,
                         'via' => 'skipped_optional',
                         'sla_days' => $step->sla_days ?? 3,
                         'due_at' => null,
@@ -391,6 +392,7 @@ class WorkflowResolver
                     'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
                     'assignee_id' => null,
                     'assignee_name' => null,
+                    'assignee_initials' => null,
                     'via' => 'shared_queue',
                     'sla_days' => $step->sla_days ?? 3,
                     'due_at' => Carbon::parse($request->submitted_at ?? now())->addDays($step->sla_days ?? 3)->toDateTimeString(),
@@ -431,6 +433,7 @@ class WorkflowResolver
                         'role_label' => $step->role_required ?? 'Unknown',
                         'assignee_id' => null,
                         'assignee_name' => null,
+                        'assignee_initials' => null,
                         'via' => 'skipped_optional',
                         'sla_days' => $step->sla_days ?? 3,
                         'due_at' => null,
@@ -457,6 +460,7 @@ class WorkflowResolver
                         'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
                         'assignee_id' => null,
                         'assignee_name' => null,
+                        'assignee_initials' => null,
                         'via' => 'collapsed_duplicate',
                         'sla_days' => $step->sla_days ?? 3,
                         'due_at' => null,
@@ -478,6 +482,7 @@ class WorkflowResolver
                     'role_label' => $step->approvalRole?->name ?? ($step->role_required ?? 'Unknown'),
                     'assignee_id' => $assigneeId,
                     'assignee_name' => $assigneeName,
+                    'assignee_initials' => $assignee?->avatar_initials,
                     'sla_days' => $slaDays,
                     'due_at' => Carbon::parse($request->submitted_at ?? now())
                         ->addDays($slaDays)
@@ -590,6 +595,7 @@ class WorkflowResolver
             'role_label' => 'Final Authority — DPP',
             'assignee_id' => $finalHolder->id,
             'assignee_name' => $finalHolder->full_name,
+            'assignee_initials' => $finalHolder->avatar_initials,
             'via' => 'standing',
             'sla_days' => $finalStep?->sla_days ?? 3,
             'due_at' => Carbon::parse($request->submitted_at ?? now())->addDays($finalStep?->sla_days ?? 3)->toDateTimeString(),
@@ -628,6 +634,12 @@ class WorkflowResolver
 
         if ($request->days !== null) {
             $definitions->where('min_duration_days', '<=', $request->days);
+            // Optional upper bound ("Advanced Duration Rule"). NULL keeps the
+            // historical open-ended meaning, so every pre-existing definition
+            // matches exactly as before.
+            $definitions->where(function ($q) use ($request) {
+                $q->whereNull('max_duration_days')->orWhere('max_duration_days', '>=', $request->days);
+            });
         }
 
         $matches = $definitions

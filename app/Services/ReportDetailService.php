@@ -290,6 +290,7 @@ class ReportDetailService
             'id' => $e->id,
             'full_name' => $e->full_name,
             'initials' => $e->initials,
+            'avatar_initials' => $e->avatar_initials,
             'department' => $e->department ? [
                 'id' => $e->department->id,
                 'name' => $e->department->name,

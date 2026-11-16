@@ -518,37 +518,41 @@ class DatabaseSeeder extends Seeder
 
     protected function seedWorkflows(): void
     {
+        // Titles mirror the migration back-fill ("{Leave Type} Workflow vN") so
+        // a freshly seeded database and an upgraded one look the same in the
+        // Workflow Management list. Existing installs keep the titles the
+        // migration generated; firstOrCreate/insert is never re-run there.
         $defs = [
-            ['id' => 'wf_annual', 'leave_type_id' => 'lt1', 'steps' => [
+            ['id' => 'wf_annual', 'workflow_title' => 'Annual Leave Workflow v1', 'leave_type_id' => 'lt1', 'steps' => [
                 ['supervisor', 2, 'Verifies work coverage and minimum staffing.'],
                 ['zonal_head', 3, 'Regional sign-off for non-HQ zones; final authority only when >20 days.'],
                 ['hr_reviewer', 3, 'Checks balance, eligibility and policy compliance.'],
             ]],
-            ['id' => 'wf_sick', 'leave_type_id' => 'lt2', 'steps' => [
+            ['id' => 'wf_sick', 'workflow_title' => 'Sick Leave Workflow v1', 'leave_type_id' => 'lt2', 'steps' => [
                 ['supervisor', 1, 'Recommends on continuity and coverage.'],
                 ['hr_reviewer', 2, 'Verifies medical certificate and balance.'],
             ]],
-            ['id' => 'wf_maternity', 'leave_type_id' => 'lt3', 'steps' => [
+            ['id' => 'wf_maternity', 'workflow_title' => 'Maternity Leave Workflow v1', 'leave_type_id' => 'lt3', 'steps' => [
                 ['department_head', 2, 'Confirms acting cover for the position.'],
                 ['hr_reviewer', 3, 'Verifies antenatal documentation and statutory days.'],
                 ['final_authority', 3, 'Statutory sign-off.'],
             ]],
-            ['id' => 'wf_paternity', 'leave_type_id' => 'lt4', 'steps' => [
+            ['id' => 'wf_paternity', 'workflow_title' => 'Paternity Leave Workflow v1', 'leave_type_id' => 'lt4', 'steps' => [
                 ['supervisor', 1, 'Confirms short-term cover.'],
                 ['hr_reviewer', 2, 'Verifies birth certificate; records privately.'],
             ]],
-            ['id' => 'wf_emergency', 'leave_type_id' => 'lt5', 'steps' => [
+            ['id' => 'wf_emergency', 'workflow_title' => 'Emergency Leave Workflow v1', 'leave_type_id' => 'lt5', 'steps' => [
                 ['supervisor', 1, 'Acknowledges emergency reasons.'],
                 ['hr_reviewer', 2, 'Validates balance and records exception.'],
             ]],
-            ['id' => 'wf_study', 'leave_type_id' => 'lt6', 'steps' => [
+            ['id' => 'wf_study', 'workflow_title' => 'Study Leave Workflow v1', 'leave_type_id' => 'lt6', 'steps' => [
                 ['supervisor', 3, 'Assesses operational impact.'],
                 ['department_head', 3, 'Endorses training relevance.'],
                 ['zonal_head', 3, 'Pemba coordination review where applicable.'],
                 ['hr_reviewer', 3, 'Checks tenure, documents and bond conditions.'],
                 ['final_authority', 3, 'Final sign-off.'],
             ]],
-            ['id' => 'wf_lwp', 'leave_type_id' => 'lt7', 'steps' => [
+            ['id' => 'wf_lwp', 'workflow_title' => 'Leave Without Pay Workflow v1', 'leave_type_id' => 'lt7', 'steps' => [
                 ['supervisor', 2, 'Confirms operational impact.'],
                 ['department_head', 3, 'Recommends on absence length.'],
                 ['hr_reviewer', 3, 'Checks probation and policy compliance.'],
@@ -558,7 +562,8 @@ class DatabaseSeeder extends Seeder
 
         foreach ($defs as $def) {
             $workflow = WorkflowDefinition::create([
-                'id' => $def['id'], 'leave_type_id' => $def['leave_type_id'], 'version' => 1,
+                'id' => $def['id'], 'workflow_title' => $def['workflow_title'],
+                'leave_type_id' => $def['leave_type_id'], 'version' => 1,
                 'min_duration_days' => 0, 'zone_id' => null, 'department_id' => null,
                 'effective_from' => '2024-01-01', 'effective_to' => null,
                 'created_by' => 'u3', 'approved_by' => 'u1',

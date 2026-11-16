@@ -346,6 +346,9 @@ class ReportingLineController extends Controller
                 ? [
                     'id' => $supervisor->id,
                     'full_name' => $supervisor->full_name,
+                    'initials' => $supervisor->initials,
+                    'avatar_initials' => $supervisor->avatar_initials,
+                    'avatar_url' => $supervisor->avatar_url,
                     'email' => $supervisor->email,
                     'department_id' => $supervisor->department_id,
                     'zone_id' => $supervisor->zone_id,

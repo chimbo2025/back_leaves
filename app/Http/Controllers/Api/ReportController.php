@@ -926,7 +926,7 @@ class ReportController extends Controller
             'created_at' => $export->created_at?->toIso8601String(),
             'updated_at' => $export->updated_at?->toIso8601String(),
             'is_downloadable' => $export->isDownloadable(),
-            'requester' => $export->requester?->only('id', 'full_name'),
+            'requester' => $export->requester?->avatarSummary(),
         ];
     }
 }

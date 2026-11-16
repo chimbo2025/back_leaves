@@ -96,6 +96,9 @@ class OrganizationController extends Controller
         return [
             'employee_id' => $grant->employee_id,
             'full_name' => $grant->employee->full_name,
+            'initials' => $grant->employee->initials,
+            'avatar_initials' => $grant->employee->avatar_initials,
+            'avatar_url' => $grant->employee->avatar_url,
         ];
     }
 
@@ -965,6 +968,10 @@ class OrganizationController extends Controller
             'user_id' => $userId,
             'payroll_no' => $data['payroll_no'] ?? null,
             'full_name' => $data['full_name'],
+            'first_name' => $data['first_name'] ?? null,
+            'middle_name' => $data['middle_name'] ?? null,
+            'last_name' => $data['last_name'] ?? null,
+            'profile_photo_path' => $data['profile_photo_path'] ?? null,
             'initials' => $data['initials'] ?? null,
             'position_id' => $data['position_id'] ?? null,
             'department_id' => $data['department_id'],
@@ -1100,6 +1107,8 @@ class OrganizationController extends Controller
                     'head' => $head ? [
                         'employee_id' => $head->employee_id,
                         'full_name' => $head->employee?->full_name,
+                        'initials' => $head->employee?->initials,
+                        'avatar_initials' => $head->employee?->avatar_initials,
                     ] : null,
                     'active_employees_count' => $employeeCount,
                     'is_active' => $d->is_active,
@@ -1191,6 +1200,9 @@ class OrganizationController extends Controller
             'employees' => $division->employees->map(fn (Employee $e) => [
                 'id' => $e->id,
                 'full_name' => $e->full_name,
+                'initials' => $e->initials,
+                'avatar_initials' => $e->avatar_initials,
+                'avatar_url' => $e->avatar_url,
                 'payroll_no' => $e->payroll_no,
                 'position' => $e->position?->title,
                 'zone' => $e->zone?->name,
@@ -1309,6 +1321,9 @@ class OrganizationController extends Controller
                 ->map(fn (Employee $e) => [
                 'id' => $e->id,
                 'full_name' => $e->full_name,
+                'initials' => $e->initials,
+                'avatar_initials' => $e->avatar_initials,
+                'avatar_url' => $e->avatar_url,
                 'payroll_no' => $canSeeSensitive ? $e->payroll_no : null,
                 'gender' => $canSeeSensitive ? $e->gender : null,
                 'position' => $e->position?->title,
@@ -1369,6 +1384,8 @@ class OrganizationController extends Controller
                     'head' => $head ? [
                         'employee_id' => $head->employee_id,
                         'full_name' => $head->employee?->full_name,
+                        'initials' => $head->employee?->initials,
+                        'avatar_initials' => $head->employee?->avatar_initials,
                     ] : null,
                     'active_employees_count' => $employeeCount,
                     'is_active' => $d->is_active,
@@ -1450,6 +1467,9 @@ class OrganizationController extends Controller
             'employees' => $unit->employees->map(fn (Employee $e) => [
                 'id' => $e->id,
                 'full_name' => $e->full_name,
+                'initials' => $e->initials,
+                'avatar_initials' => $e->avatar_initials,
+                'avatar_url' => $e->avatar_url,
                 'payroll_no' => $e->payroll_no,
                 'position' => $e->position?->title,
                 'zone' => $e->zone?->name,
@@ -1528,6 +1548,9 @@ class OrganizationController extends Controller
             'data' => collect($employees->items())->map(fn (Employee $e) => [
                 'id' => $e->id,
                 'full_name' => $e->full_name,
+                'initials' => $e->initials,
+                'avatar_initials' => $e->avatar_initials,
+                'avatar_url' => $e->avatar_url,
                 'payroll_no' => $canSeeSensitive ? $e->payroll_no : null,
                 'gender' => $canSeeSensitive ? $e->gender : null,
                 'position' => $e->position?->title,
@@ -1574,6 +1597,8 @@ class OrganizationController extends Controller
             'head' => $head ? [
                 'employee_id' => $head['employee_id'],
                 'full_name' => $head['full_name'],
+                'avatar_initials' => $head['avatar_initials'] ?? null,
+                'avatar_url' => $head['avatar_url'] ?? null,
             ] : null,
             'employee_count' => $employeeCount,
             'active_employee_count' => $employeeCount,
@@ -1605,6 +1630,8 @@ class OrganizationController extends Controller
             'head' => $head ? [
                 'employee_id' => $head['employee_id'],
                 'full_name' => $head['full_name'],
+                'avatar_initials' => $head['avatar_initials'] ?? null,
+                'avatar_url' => $head['avatar_url'] ?? null,
             ] : null,
             'employee_count' => $employeeCount,
             'active_employee_count' => $employeeCount,

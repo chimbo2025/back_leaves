@@ -12,6 +12,27 @@ class DecideRequest extends FormRequest
         return true;
     }
 
+    /**
+     * The `/api/approvals/{id}/approve|reject|return` aliases encode the
+     * decision in the URL, so the body does not have to repeat it. Normalise
+     * here instead of duplicating the whole validation/authorisation path in
+     * three controller methods.
+     */
+    protected function prepareForValidation(): void
+    {
+        $map = [
+            'approve' => 'approved',
+            'reject' => 'rejected',
+            'returnForCorrection' => 'returned',
+        ];
+
+        $action = $this->route()?->getActionMethod();
+
+        if (isset($map[$action]) && ! $this->has('decision')) {
+            $this->merge(['decision' => $map[$action]]);
+        }
+    }
+
     public function rules(): array
     {
         return [

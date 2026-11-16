@@ -24,6 +24,9 @@ class PaymentCaseHRResource extends JsonResource
                 'employee' => $this->whenLoaded('employee', fn () => [
                     'id' => $this->employee->id,
                     'full_name' => $this->employee->full_name,
+                    'initials' => $this->employee->initials,
+                    'avatar_initials' => $this->employee->avatar_initials,
+                    'avatar_url' => $this->employee->avatar_url,
                     'department' => $this->employee->department ? [
                         'id' => $this->employee->department->id,
                         'name' => $this->employee->department->name,

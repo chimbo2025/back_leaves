@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PermissionAuditController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RequestController;
 use App\Http\Controllers\Api\ReportingLineController;
+use App\Http\Controllers\Api\RoleAssignmentController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\WorkflowController;
 use Illuminate\Support\Facades\Route;
@@ -237,9 +238,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // codes and the dedicated approval_workflows.* codes (defense in depth):
     // the holder sets are identical, so stacking changes no outcome, but both
     // families stay genuinely enforced and neither rots into a dead switch.
-    Route::prefix('workflows')->middleware(['permission:policies.view', 'permission:approval_workflows.view'])->group(function () {
+    $workflowRoutes = function (): void {
         Route::get('/', [WorkflowController::class, 'index']);
         Route::post('preview', [WorkflowController::class, 'preview']);
+        // Dry-run for the live builder preview: validates scope/duration and
+        // reports the chain plus any overlapping active definition without
+        // persisting anything.
+        Route::match(['post', 'put'], 'check', [WorkflowController::class, 'check']);
         Route::get('{workflowDefinition}', [WorkflowController::class, 'show']);
         Route::post('/', [WorkflowController::class, 'store'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.create']);
         Route::match(['put', 'patch'], '{workflowDefinition}', [WorkflowController::class, 'update'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.update']);
@@ -249,6 +254,33 @@ Route::middleware('auth:sanctum')->group(function () {
         // controller refuses definitions carrying history and the type's
         // last active chain.
         Route::delete('{workflowDefinition}', [WorkflowController::class, 'destroy'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.update']);
+    };
+
+    Route::prefix('workflows')->middleware(['permission:policies.view', 'permission:approval_workflows.view'])->group($workflowRoutes);
+
+    // Spec §15 alias. Same controller, same middleware — the legacy prefix
+    // stays live for the existing frontend and API consumers.
+    Route::prefix('approval-workflows')->middleware(['permission:policies.view', 'permission:approval_workflows.view'])->group($workflowRoutes);
+
+    // Spec §15 approval aliases. These do not carry a route-level permission
+    // code for the same reason /requests/{id}/decide does not: the required
+    // code depends on the decision and is checked, together with assignment
+    // ownership, inside LeaveRequestService::decide.
+    Route::prefix('approvals')->group(function () {
+        Route::get('pending', [RequestController::class, 'myInbox']);
+        Route::post('{leaveRequest}/approve', [RequestController::class, 'approve'])->whereNumber('leaveRequest');
+        Route::post('{leaveRequest}/reject', [RequestController::class, 'reject'])->whereNumber('leaveRequest');
+        Route::post('{leaveRequest}/return', [RequestController::class, 'returnForCorrection'])->whereNumber('leaveRequest');
+    });
+
+    // Spec §15 role assignments — a CRUD face over the existing
+    // employee_approval_roles table the resolver already reads. Gated by the
+    // same admin codes as the organisation grant routes that write it.
+    Route::prefix('role-assignments')->group(function () {
+        Route::get('/', [RoleAssignmentController::class, 'index'])->middleware('permission:admin.view');
+        Route::post('/', [RoleAssignmentController::class, 'store'])->middleware('permission:admin.update');
+        Route::match(['put', 'patch'], '{roleAssignment}', [RoleAssignmentController::class, 'update'])->middleware('permission:admin.update');
+        Route::delete('{roleAssignment}', [RoleAssignmentController::class, 'destroy'])->middleware('permission:admin.update');
     });
 
     // Delegations — a user manages the roles they hold

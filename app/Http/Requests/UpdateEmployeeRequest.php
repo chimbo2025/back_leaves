@@ -16,6 +16,10 @@ class UpdateEmployeeRequest extends FormRequest
     {
         return [
             'full_name' => ['sometimes', 'string', 'max:120'],
+            'first_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'middle_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'last_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'profile_photo_path' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'initials' => ['sometimes', 'string', 'max:8'],
             'payroll_no' => ['sometimes', 'nullable', 'string', 'max:40', Rule::unique('employees', 'payroll_no')->ignore($this->route('employee'))],
             'position_id' => ['sometimes', 'nullable', Rule::exists('positions', 'id')],

@@ -250,7 +250,11 @@ class LeavePaymentController extends Controller
                 'cancelled_by', 'cancelled_at', 'cancellation_reason',
                 'created_at', 'updated_at',
             ),
-            'employee' => $case->employee?->only('id', 'full_name', 'department_id', 'zone_id'),
+            'employee' => $case->employee ? [
+                ...$case->employee->avatarSummary(),
+                'department_id' => $case->employee->department_id,
+                'zone_id' => $case->employee->zone_id,
+            ] : null,
             'leave_type' => $case->leaveType?->only('id', 'code', 'name'),
         ];
 

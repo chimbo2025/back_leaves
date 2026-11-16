@@ -122,10 +122,15 @@ it('creates and updates leave types behind admin gates', function () {
 it('creates and patches workflow definitions behind the edit_policy gate', function () {
     $hr = apiLogin('u3');
 
+    // Overlap guard: the seeded Annual chain must be retired before a second
+    // active Annual chain covering the same duration band can be saved.
+    \Illuminate\Support\Facades\DB::table('workflow_definitions')->where('id', 'wf_annual')->update(['is_active' => false]);
+
     $version = WorkflowDefinition::where('leave_type_id', 'lt1')->max('version') + 1;
     $id = "wf_lt1_v{$version}";
 
     $created = $this->postJson('/api/workflows', [
+        'workflow_title' => 'Annual Leave — Admin revision',
         'leave_type_id' => 'lt1',
         'steps' => [
             ['role_required' => 'SUPERVISOR', 'sla_days' => 2, 'note' => 'First review.'],
@@ -137,15 +142,18 @@ it('creates and patches workflow definitions behind the edit_policy gate', funct
     expect($created['version'])->toBe($version);
     expect($created['steps'])->toHaveCount(2);
 
+    // Patch rewrites the chain in place; the version is an identity, not a
+    // counter that increments on every edit.
     $this->patchJson("/api/workflows/{$id}", [
         'steps' => [['role_required' => 'SUPERVISOR', 'sla_days' => 1, 'note' => 'Revised.']],
     ], ['Authorization' => "Bearer {$hr}"])
         ->assertOk()
-        ->assertJsonPath('data.version', $version + 1)
+        ->assertJsonPath('data.version', $version)
         ->assertJsonCount(1, 'data.steps');
 
     // Invalid step role rejected.
     $this->postJson('/api/workflows', [
+        'workflow_title' => 'Annual Leave — Invalid role probe',
         'leave_type_id' => 'lt1',
         'steps' => [['role_required' => 'NOPE', 'sla_days' => 1]],
     ], ['Authorization' => "Bearer {$hr}"])->assertStatus(422);

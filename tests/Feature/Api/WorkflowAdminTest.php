@@ -16,9 +16,14 @@ use Illuminate\Support\Facades\DB;
 it('creates a new version, toggles the old one off, and routes new submissions through the new chain', function () {
     $admin = apiLogin('u1');
 
+    // A replacement chain can only be saved once the definition it supersedes
+    // is no longer active (overlap guard), so retire the seeded v1 first.
+    DB::table('workflow_definitions')->where('id', 'wf_annual')->update(['is_active' => false]);
+
     $created = $this->postJson('/api/workflows', [
+        'workflow_title' => 'Annual Leave — Regional review',
         'leave_type_id' => 'lt1',
-        'min_duration_days' => 0,
+        'min_duration_days' => 1,
         'steps' => [
             ['role_required' => 'ZONAL_HEAD', 'sla_days' => 2, 'note' => 'Regional verifies.'],
             ['role_required' => 'HR', 'sla_days' => 1, 'note' => 'HR compliance.'],
@@ -71,11 +76,18 @@ it('refuses deactivating the last active workflow of a leave type', function () 
 it('deletes an unused definition and records the audit entry', function () {
     $admin = apiLogin('u1');
 
+    DB::table('workflow_definitions')->where('id', 'wf_annual')->update(['is_active' => false]);
+
     $created = $this->postJson('/api/workflows', [
+        'workflow_title' => 'Annual Leave — Long stay',
         'leave_type_id' => 'lt1',
         'min_duration_days' => 10,
         'steps' => [['role_required' => 'DEPT_HEAD', 'sla_days' => 2, 'note' => 'Long-stay check.']],
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201)->json('data');
+
+    // Bring the superseded chain back: a leave type must keep an active chain,
+    // so the ad-hoc definition can only be deleted once a sibling is active.
+    DB::table('workflow_definitions')->where('id', 'wf_annual')->update(['is_active' => true]);
 
     $this->deleteJson("/api/workflows/{$created['id']}", [], ['Authorization' => "Bearer {$admin}"])
         ->assertOk()
@@ -113,6 +125,7 @@ it('refuses deleting the last active workflow of a leave type', function () {
     DB::table('workflow_definitions')->where('leave_type_id', 'lt2')->delete();
 
     $created = $this->postJson('/api/workflows', [
+        'workflow_title' => 'Sick Leave — Sole chain',
         'leave_type_id' => 'lt2',
         'steps' => [['role_required' => 'SUPERVISOR', 'sla_days' => 1, 'note' => 'Sole chain.']],
     ], ['Authorization' => "Bearer {$admin}"])->assertStatus(201)->json('data');

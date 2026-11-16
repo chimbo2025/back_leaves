@@ -294,7 +294,10 @@ class LeaveRequestService
             // Delegation: an active delegate of an eligible holder may also act.
             if (! $eligible) {
                 $eligible = Delegation::where('delegate_employee_id', $actor->id)
-                    ->where('approval_role_id', $current->assigned_role_id)
+                    ->where(function ($q) use ($current) {
+                        $q->where('approval_role_id', $current->assigned_role_id)
+                            ->orWhere('role_id', $current->assigned_role_id);
+                    })
                     ->where('active', true)
                     ->whereDate('start_date', '<=', now()->toDateString())
                     ->whereDate('end_date', '>=', now()->toDateString())
@@ -307,8 +310,18 @@ class LeaveRequestService
             }
         } else {
             // Assigned approver mode: ownership or active delegation.
+            //
+            // A delegation stores both the legacy role id and the catalog
+            // approval role id, while the assignment stores whichever pointer
+            // the step carried (new chains use the catalog code, legacy chains
+            // the role id). Match either column so a delegate is recognised in
+            // both worlds — matching only role_id silently locked delegates
+            // out of every step created through the approval-role catalog.
             $isDelegate = Delegation::where('delegate_employee_id', $actor->id)
-                ->where('role_id', $current->assigned_role_id)
+                ->where(function ($q) use ($current) {
+                    $q->where('role_id', $current->assigned_role_id)
+                        ->orWhere('approval_role_id', $current->assigned_role_id);
+                })
                 ->where('active', true)
                 ->whereDate('start_date', '<=', now()->toDateString())
                 ->whereDate('end_date', '>=', now()->toDateString())

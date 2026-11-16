@@ -137,6 +137,27 @@ class RequestController extends Controller
         ]);
     }
 
+    /**
+     * Spec-compatible decision aliases: POST /api/approvals/{id}/approve,
+     * /reject, /return. They share the exact validation, ownership, permission
+     * and signature path as /requests/{id}/decide (DecideRequest fills the
+     * decision from the route), so no second approval implementation exists.
+     */
+    public function approve(Request $request, LeaveRequest $leaveRequest, DecideRequest $form): JsonResponse
+    {
+        return $this->decide($request, $leaveRequest, $form);
+    }
+
+    public function reject(Request $request, LeaveRequest $leaveRequest, DecideRequest $form): JsonResponse
+    {
+        return $this->decide($request, $leaveRequest, $form);
+    }
+
+    public function returnForCorrection(Request $request, LeaveRequest $leaveRequest, DecideRequest $form): JsonResponse
+    {
+        return $this->decide($request, $leaveRequest, $form);
+    }
+
     public function withdraw(Request $request, LeaveRequest $leaveRequest): JsonResponse
     {
         if ($leaveRequest->employee_id !== $request->user()->employee?->id) {
@@ -479,6 +500,9 @@ class RequestController extends Controller
                     'assignment_id' => $wa->id,
                     'request_ref' => $wa->request?->ref,
                     'employee' => $requester?->full_name,
+                    'employee_id' => $requester?->id,
+                    'employee_initials' => $requester?->avatar_initials,
+                    'employee_avatar_url' => $requester?->avatar_url,
                     'leave_type' => $wa->request?->leaveType?->code,
                     'days' => $wa->request?->days,
                     'start_date' => $wa->request?->start_date?->toDateString(),
@@ -506,13 +530,14 @@ class RequestController extends Controller
 
         return [
             ...$request->only('id', 'ref', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
-            'employee' => $request->employee?->only('id', 'full_name'),
+            'employee' => $request->employee ? $request->employee->avatarSummary() : null,
             'leave_type' => $request->leaveType?->only('code', 'name'),
             'assignments' => $assignments->map(fn ($a) => [
                 'id' => $a->id,
                 'role' => $a->assigned_role_id,
                 'assignee_id' => $a->assigned_employee_id,
                 'assignee_name' => $a->assignee?->full_name,
+                'assignee_initials' => $a->assignee?->avatar_initials,
                 'status' => $a->status,
                 'due_at' => $a->due_at?->toDateTimeString(),
                 'decided_at' => $a->decided_at?->toDateTimeString(),
