@@ -28,7 +28,7 @@ use Illuminate\Validation\ValidationException;
 class WorkflowOverlapGuard
 {
     /**
-     * @param  array{leave_type_id:string, workflow_title?:?string, min_duration_days?:int, max_duration_days?:?int, zone_id?:?string, department_id?:?string, effective_from?:?string, effective_to?:?string, is_active?:bool}  $candidate
+     * @param  array{leave_type_id:string, workflow_title?:?string, min_duration_days?:int, max_duration_days?:?int, zone_id?:?string, department_id?:?string, department_ids?:list<string>|null, effective_from?:?string, effective_to?:?string, is_active?:bool}  $candidate
      * @return WorkflowDefinition|null
      */
     public function findConflict(array $candidate, ?string $excludeId = null): ?WorkflowDefinition
@@ -42,8 +42,11 @@ class WorkflowOverlapGuard
             ? (int) $candidate['max_duration_days']
             : null;
 
+        $candidateDepts = $this->normalizeDepartmentIds($candidate);
+
         $existingRows = WorkflowDefinition::where('leave_type_id', $candidate['leave_type_id'])
             ->where('is_active', true)
+            ->with('departments:id')
             ->when($excludeId, fn ($q) => $q->where('id', '<>', $excludeId))
             ->get();
 
@@ -68,9 +71,9 @@ class WorkflowOverlapGuard
 
             if (! $this->scopesOverlap(
                 $candidate['zone_id'] ?? null,
-                $candidate['department_id'] ?? null,
+                $candidateDepts,
                 $existing->zone_id,
-                $existing->department_id,
+                $existing->departmentIds(),
             )) {
                 continue;
             }
@@ -102,7 +105,7 @@ class WorkflowOverlapGuard
         $typeName = LeaveType::find($candidate['leave_type_id'])?->name
             ?? (string) $candidate['leave_type_id'];
         $existingTitle = $conflict->workflow_title ?: ('workflow v' . $conflict->version);
-        $existingScope = $this->scopeLabel($conflict->zone_id, $conflict->department_id);
+        $existingScope = $this->scopeLabel($conflict->zone_id, $conflict->departmentIds());
         $existingDuration = $this->durationLabel(
             (int) $conflict->min_duration_days,
             $conflict->max_duration_days,
@@ -124,17 +127,46 @@ class WorkflowOverlapGuard
     }
 
     /**
-     * Human-readable scope label used by the overlap message and the preview.
+     * Normalize the department scope from either the new `department_ids`
+     * list or the legacy single `department_id`.
+     *
+     * @param  array<string, mixed>  $candidate
+     * @return list<string>
      */
-    public function scopeLabel(?string $zoneId, ?string $departmentId): string
+    private function normalizeDepartmentIds(array $candidate): array
     {
-        if ($departmentId) {
-            $dept = Department::find($departmentId);
-            $name = $dept?->name ?? $departmentId;
+        $ids = $candidate['department_ids'] ?? $candidate['department_id'] ?? [];
 
-            return $dept?->unit_type === 'division' || $dept?->unit_type === 'independent_unit'
-                ? "the {$name} {$dept->unit_type}"
-                : "the {$name} department";
+        if (is_string($ids)) {
+            $ids = [$ids];
+        }
+
+        return array_values(array_unique(array_filter(array_map('strval', (array) $ids))));
+    }
+
+    /**
+     * Human-readable scope label used by the overlap message and the preview.
+     *
+     * @param  list<string>|string|null  $departmentIds
+     */
+    public function scopeLabel(?string $zoneId, array|string|null $departmentIds): string
+    {
+        if (is_string($departmentIds)) {
+            $departmentIds = [$departmentIds];
+        }
+        $ids = array_values(array_unique(array_filter((array) $departmentIds)));
+
+        if ($ids !== []) {
+            $names = Department::whereIn('id', $ids)->get()
+                ->map(fn (Department $dept) => $this->placementLabel($dept))
+                ->values()
+                ->all();
+
+            if (count($names) <= 2) {
+                return 'the ' . implode(' and ', $names);
+            }
+
+            return 'these ' . count($names) . ' selected scopes (' . implode(', ', array_slice($names, 0, 2)) . ', …)';
         }
 
         if ($zoneId) {
@@ -144,6 +176,15 @@ class WorkflowOverlapGuard
         }
 
         return 'the Entire Office';
+    }
+
+    private function placementLabel(Department $dept): string
+    {
+        $name = $dept->name ?? $dept->id;
+
+        return $dept->unit_type === 'division' || $dept->unit_type === 'independent_unit'
+            ? "{$name} {$dept->unit_type}"
+            : "{$name} department";
     }
 
     public function durationLabel(int $min, ?int $max): string
@@ -166,34 +207,69 @@ class WorkflowOverlapGuard
     }
 
     /**
-     * Zone / placement overlap.
+     * Zone / placement-set overlap.
      *
-     * - Both office-wide: yes.
-     * - Office-wide vs zone/placement: yes (the office rule also reaches them).
-     * - Two different zones: no.
-     * - Two placements: yes when one is the other or an ancestor/descendant,
-     *   which is how a division or unit row is covered by its parent chain.
+     * - Both office-wide (no placements): yes.
+     * - Office-wide vs zone/placement set: yes (the office rule also reaches them),
+     *   unless every placement sits in an incompatible zone.
+     * - Two different zones with no placements: no.
+     * - Two placement sets: yes when any member of one is an ancestor,
+     *   descendant or self of any member of the other, which is how a division
+     *   or unit row is covered by its parent chain.
+     *
+     * @param  list<string>|null  $aDepts
+     * @param  list<string>|null  $bDepts
      */
-    public function scopesOverlap(?string $aZone, ?string $aDept, ?string $bZone, ?string $bDept): bool
+    public function scopesOverlap(?string $aZone, ?array $aDepts, ?string $bZone, ?array $bDepts): bool
     {
-        if ($aDept === null && $bDept === null) {
+        $aDepts = array_values(array_unique(array_filter((array) $aDepts)));
+        $bDepts = array_values(array_unique(array_filter((array) $bDepts)));
+
+        if ($aDepts === [] && $bDepts === []) {
             return $this->zonesCompatible($aZone, $bZone);
         }
 
-        if ($aDept === null) {
-            $deptZone = $bDept ? Department::find($bDept)?->zone_id : null;
-
-            return $this->zonesCompatible($aZone, $bZone ?? $deptZone);
+        if ($aDepts === []) {
+            return $this->zoneOrAnyPlacementCompatible($aZone, $bZone, $bDepts);
         }
 
-        if ($bDept === null) {
-            $deptZone = Department::find($aDept)?->zone_id;
-
-            return $this->zonesCompatible($aZone ?? $deptZone, $bZone);
+        if ($bDepts === []) {
+            return $this->zoneOrAnyPlacementCompatible($bZone, $aZone, $aDepts);
         }
 
-        return $this->placementContains($aDept, $bDept)
-            || $this->placementContains($bDept, $aDept);
+        foreach ($aDepts as $a) {
+            foreach ($bDepts as $b) {
+                if ($this->placementContains($a, $b) || $this->placementContains($b, $a)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A zone/office-wide rule against a placement set: compatible when the
+     * other zone matches, or (when that side carries no zone) when at least
+     * one placement node sits in a compatible zone.
+     *
+     * @param  list<string>  $depts
+     */
+    private function zoneOrAnyPlacementCompatible(?string $zone, ?string $otherZone, array $depts): bool
+    {
+        if ($otherZone !== null) {
+            return $this->zonesCompatible($zone, $otherZone);
+        }
+
+        foreach ($depts as $deptId) {
+            $deptZone = Department::find($deptId)?->zone_id;
+
+            if ($this->zonesCompatible($zone, $deptZone)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function effectiveOverlap(?string $aFrom, ?string $aTo, ?string $bFrom, ?string $bTo): bool

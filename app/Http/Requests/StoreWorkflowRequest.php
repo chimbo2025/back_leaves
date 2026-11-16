@@ -38,6 +38,8 @@ class StoreWorkflowRequest extends FormRequest
             'max_duration_days' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:730'],
             'zone_id' => ['sometimes', 'nullable', Rule::exists('zones', 'id')],
             'department_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')],
+            'department_ids' => ['sometimes', 'nullable', 'array'],
+            'department_ids.*' => ['sometimes', 'nullable', 'string', Rule::exists('departments', 'id')],
             'effective_from' => ['sometimes', 'date'],
             'effective_to' => ['sometimes', 'nullable', 'date'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:500'],

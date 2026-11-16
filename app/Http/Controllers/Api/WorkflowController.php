@@ -70,7 +70,7 @@ class WorkflowController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = WorkflowDefinition::with(['leaveType', 'department', 'zone', 'steps.approvalRole']);
+        $query = WorkflowDefinition::with(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole']);
 
         $this->applyListFilters($query, $request);
 
@@ -117,10 +117,15 @@ class WorkflowController extends Controller
         $maxDays = $form->input('max_duration_days');
         $maxDays = $maxDays === null || $maxDays === '' ? null : (int) $maxDays;
         $zoneId = $form->input('zone_id') ?: null;
-        $departmentId = $form->input('department_id') ?: null;
+        // Multi-scope: department_ids list wins, legacy single department_id
+        // (older clients) is wrapped into a one-element set.
+        $departmentIds = $this->idsFromForm($form);
+        $departmentId = $departmentIds[0] ?? null;
         $from = $form->input('effective_from', now()->toDateString());
         $to = $form->input('effective_to');
         $isActive = $form->boolean('is_active', true);
+        $steps = $form->input('steps', []);
+        $createdBy = $form->user()->id;
 
         if ($to !== null && $from !== null && strcmp((string) $to, (string) $from) < 0) {
             throw ValidationException::withMessages(['effective_to' => 'Effective-to must be on or after effective-from.']);
@@ -135,7 +140,7 @@ class WorkflowController extends Controller
             'min_duration_days' => $minDays,
             'max_duration_days' => $maxDays,
             'zone_id' => $zoneId,
-            'department_id' => $departmentId,
+            'department_ids' => $departmentIds,
             'effective_from' => $from,
             'effective_to' => $to,
             'is_active' => $isActive,
@@ -144,35 +149,39 @@ class WorkflowController extends Controller
         $version = ((int) WorkflowDefinition::where('leave_type_id', $leaveTypeId)->max('version') ?? 0) + 1;
         $id = $form->input('id') ?: 'wf_' . $leaveTypeId . '_v' . $version;
 
-        $def = WorkflowDefinition::create([
-            'id' => $id,
-            'workflow_title' => $title,
-            'leave_type_id' => $leaveTypeId,
-            'version' => $version,
-            'min_duration_days' => $minDays,
-            'max_duration_days' => $maxDays,
-            'zone_id' => $zoneId,
-            'department_id' => $departmentId,
-            'effective_from' => $from,
-            'effective_to' => $to,
-            'created_by' => $form->user()->id,
-            'approved_by' => $form->input('approved_by'),
-            'notes' => $form->input('notes'),
-            'is_active' => $isActive,
-        ]);
+        $def = DB::transaction(function () use ($id, $version, $leaveTypeId, $title, $minDays, $maxDays, $zoneId, $departmentIds, $departmentId, $from, $to, $form, $createdBy, $steps, $isActive) {
+            $def = WorkflowDefinition::create([
+                'id' => $id,
+                'workflow_title' => $title,
+                'leave_type_id' => $leaveTypeId,
+                'version' => $version,
+                'min_duration_days' => $minDays,
+                'max_duration_days' => $maxDays,
+                'zone_id' => $zoneId,
+                'department_id' => $departmentId,
+                'effective_from' => $from,
+                'effective_to' => $to,
+                'created_by' => $createdBy,
+                'approved_by' => $form->input('approved_by'),
+                'notes' => $form->input('notes'),
+                'is_active' => $isActive,
+            ]);
 
-        $steps = $form->input('steps', []);
-        $this->syncSteps($def, $steps);
+            $def->departments()->sync($departmentIds);
+            $this->syncSteps($def, $steps);
 
-        $this->audit->append('workflow', $id, 'create', $form->user()->id, [
+            return $def;
+        });
+
+        $this->audit->append('workflow', $def->id, 'create', $createdBy, [
             'leave_type_id' => $def->leave_type_id,
             'workflow_title' => $title,
             'version' => $version,
-            'scope' => $this->overlaps->scopeLabel($zoneId, $departmentId),
+            'scope' => $this->overlaps->scopeLabel($zoneId, $departmentIds),
             'steps' => count($steps),
         ]);
 
-        return response()->json(['data' => $this->decorate($def->load(['leaveType', 'department', 'zone', 'steps.approvalRole']))], 201);
+        return response()->json(['data' => $this->decorate($def->load(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole']))], 201);
     }
 
     /** Patch workflow fields/steps (frontend updateWorkflow). */
@@ -194,7 +203,17 @@ class WorkflowController extends Controller
             : $workflowDefinition->max_duration_days;
 
         $zoneId = $form->has('zone_id') ? ($form->input('zone_id') ?: null) : $workflowDefinition->zone_id;
-        $departmentId = $form->has('department_id') ? ($form->input('department_id') ?: null) : $workflowDefinition->department_id;
+        // Multi-scope: department_ids wins, legacy department_id is wrapped to
+        // a one-element set, absent key keeps the current set.
+        if ($form->has('department_ids')) {
+            $departmentIds = $this->normalizeIdList($form->input('department_ids'));
+        } elseif ($form->has('department_id')) {
+            $legacyDept = $form->input('department_id') ?: null;
+            $departmentIds = $legacyDept ? [$legacyDept] : [];
+        } else {
+            $departmentIds = $workflowDefinition->departmentIds();
+        }
+        $departmentId = $departmentIds[0] ?? null;
         $title = $form->has('workflow_title')
             ? trim((string) $form->input('workflow_title'))
             : (string) ($workflowDefinition->workflow_title ?: '');
@@ -219,7 +238,7 @@ class WorkflowController extends Controller
             'min_duration_days' => $minDays,
             'max_duration_days' => $maxDays,
             'zone_id' => $zoneId,
-            'department_id' => $departmentId,
+            'department_ids' => $departmentIds,
             'effective_from' => $from,
             'effective_to' => $to,
             'is_active' => $isActive,
@@ -238,11 +257,14 @@ class WorkflowController extends Controller
         if ($form->has('is_active')) {
             $patch['is_active'] = $isActive;
         }
-        $workflowDefinition->update($patch);
+        DB::transaction(function () use ($workflowDefinition, $patch, $departmentIds, $form) {
+            $workflowDefinition->update($patch);
+            $workflowDefinition->departments()->sync($departmentIds);
 
-        if ($form->has('steps')) {
-            $this->syncSteps($workflowDefinition, $form->input('steps', []));
-        }
+            if ($form->has('steps')) {
+                $this->syncSteps($workflowDefinition, $form->input('steps', []));
+            }
+        });
 
         $this->audit->append('workflow', (string) $workflowDefinition->id, 'update', $form->user()->id, [
             'leave_type_id' => $workflowDefinition->leave_type_id,
@@ -251,7 +273,7 @@ class WorkflowController extends Controller
         ]);
 
         return response()->json([
-            'data' => $this->decorate($workflowDefinition->fresh(['leaveType', 'department', 'zone', 'steps.approvalRole'])),
+            'data' => $this->decorate($workflowDefinition->fresh(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole'])),
         ]);
     }
 
@@ -270,6 +292,8 @@ class WorkflowController extends Controller
             'max_duration_days' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:730'],
             'zone_id' => ['sometimes', 'nullable', Rule::exists('zones', 'id')],
             'department_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')],
+            'department_ids' => ['sometimes', 'nullable', 'array'],
+            'department_ids.*' => ['sometimes', 'nullable', 'string', Rule::exists('departments', 'id')],
             'steps' => ['sometimes', 'array'],
             'steps.*.approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
             'steps.*.assignment_mode' => ['sometimes', 'nullable', 'string'],
@@ -283,7 +307,10 @@ class WorkflowController extends Controller
             ? (int) $data['max_duration_days']
             : null;
         $zoneId = $data['zone_id'] ?? null;
-        $departmentId = $data['department_id'] ?? null;
+        $departmentIds = $this->normalizeIdList($data['department_ids'] ?? []);
+        if ($departmentIds === [] && ($data['department_id'] ?? null)) {
+            $departmentIds = [(string) $data['department_id']];
+        }
         $leaveType = LeaveType::find($data['leave_type_id']);
 
         $conflict = $this->overlaps->findConflict([
@@ -292,7 +319,7 @@ class WorkflowController extends Controller
             'min_duration_days' => $min,
             'max_duration_days' => $max,
             'zone_id' => $zoneId,
-            'department_id' => $departmentId,
+            'department_ids' => $departmentIds,
             'is_active' => true,
         ], $data['id'] ?? null);
 
@@ -301,7 +328,7 @@ class WorkflowController extends Controller
             $typeName = $leaveType?->name ?? (string) $data['leave_type_id'];
             $message = 'Another active ' . $typeName . ' workflow ('
                 . ($conflict->workflow_title ?: 'v' . $conflict->version) . ') already covers '
-                . $this->overlaps->scopeLabel($conflict->zone_id, $conflict->department_id)
+                . $this->overlaps->scopeLabel($conflict->zone_id, $conflict->departmentIds())
                 . ' for ' . $this->overlaps->durationLabel((int) $conflict->min_duration_days, $conflict->max_duration_days) . '.';
         }
 
@@ -344,7 +371,7 @@ class WorkflowController extends Controller
                 'conflict' => $conflict !== null,
                 'message' => $message,
                 'conflict_title' => $conflict?->workflow_title,
-                'applies_to' => $this->scopeSentence($zoneId, $departmentId),
+                'applies_to' => $this->scopeSentence($zoneId, $departmentIds),
                 'duration_label' => $this->overlaps->durationLabel($min, $max),
                 'leave_type_name' => $leaveType?->name,
                 'steps' => $steps,
@@ -497,6 +524,7 @@ class WorkflowController extends Controller
                     'leave_type_id' => $def->leave_type_id,
                     'zone_id' => $def->zone_id,
                     'department_id' => $def->department_id,
+                    'department_ids' => $def->departmentIds(),
                     'min_duration_days' => $def->min_duration_days,
                     'max_duration_days' => $def->max_duration_days,
                 ] : null,
@@ -536,15 +564,36 @@ class WorkflowController extends Controller
 
         $scope = (string) $request->input('scope', '');
         if ($scope === 'office_wide') {
-            $query->whereNull('zone_id')->whereNull('department_id');
+            $query->whereNull('zone_id')->whereNull('department_id')->whereDoesntHave('departments');
         } elseif ($scope === 'zone') {
-            $query->whereNotNull('zone_id')->whereNull('department_id');
+            $query->whereNotNull('zone_id')->whereNull('department_id')->whereDoesntHave('departments');
         } elseif ($scope === 'department') {
-            $query->whereNotNull('department_id')->whereHas('department', fn (Builder $q) => $q->whereNotIn('unit_type', ['division', 'independent_unit']));
+            $query->where(function (Builder $q) {
+                $q->whereHas('departments', fn (Builder $q) => $q->whereNotIn('unit_type', ['division', 'independent_unit']))
+                    ->orWhere(function (Builder $q2) {
+                        $q2->whereDoesntHave('departments')
+                            ->whereNotNull('department_id')
+                            ->whereHas('department', fn (Builder $q3) => $q3->whereNotIn('unit_type', ['division', 'independent_unit']));
+                    });
+            });
         } elseif ($scope === 'division') {
-            $query->whereHas('department', fn (Builder $q) => $q->where('unit_type', 'division'));
+            $query->where(function (Builder $q) {
+                $q->whereHas('departments', fn (Builder $q) => $q->where('unit_type', 'division'))
+                    ->orWhere(function (Builder $q2) {
+                        $q2->whereDoesntHave('departments')
+                            ->whereNotNull('department_id')
+                            ->whereHas('department', fn (Builder $q3) => $q3->where('unit_type', 'division'));
+                    });
+            });
         } elseif ($scope === 'unit') {
-            $query->whereHas('department', fn (Builder $q) => $q->whereIn('unit_type', ['independent_unit', 'unit']));
+            $query->where(function (Builder $q) {
+                $q->whereHas('departments', fn (Builder $q) => $q->whereIn('unit_type', ['independent_unit', 'unit']))
+                    ->orWhere(function (Builder $q2) {
+                        $q2->whereDoesntHave('departments')
+                            ->whereNotNull('department_id')
+                            ->whereHas('department', fn (Builder $q3) => $q3->whereIn('unit_type', ['independent_unit', 'unit']));
+                    });
+            });
         }
 
         if ($zoneId = $request->input('zone_id')) {
@@ -552,7 +601,10 @@ class WorkflowController extends Controller
         }
 
         if ($departmentId = $request->input('department_id')) {
-            $query->where('department_id', $departmentId);
+            $query->where(function (Builder $q) use ($departmentId) {
+                $q->whereHas('departments', fn (Builder $q2) => $q2->where('departments.id', $departmentId))
+                    ->orWhere('department_id', $departmentId);
+            });
         }
     }
 
@@ -593,6 +645,8 @@ class WorkflowController extends Controller
         $leaveType = $def->leaveType;
         $department = $def->department;
         $zone = $def->zone;
+        $departmentIds = $def->departmentIds();
+        $primaryDepartment = $departmentIds === [] ? null : Department::find($departmentIds[0]);
 
         return [
             ...$def->toArray(),
@@ -600,13 +654,14 @@ class WorkflowController extends Controller
                 ?: $this->generatedTitle($def->leave_type_id, (int) $def->version),
             'leave_type_name' => $leaveType?->name,
             'zone_name' => $zone?->name,
-            'department_name' => $department?->name,
-            'department_unit_type' => $department?->unit_type,
-            'scope_kind' => $department ? 'department' : ($zone ? 'zone' : 'office_wide'),
-            'scope_label' => $department
-                ? $department->name . ($department->unit_type ? ' · ' . str_replace('_', ' ', $department->unit_type) : '')
-                : ($zone?->name ?? 'Entire Office'),
-            'applies_to' => $this->scopeSentence($def->zone_id, $def->department_id),
+            // Multi-scope set (authoritative) + legacy single-column mirrors.
+            'department_ids' => $departmentIds,
+            'department_id' => $departmentIds[0] ?? null,
+            'department_name' => $primaryDepartment?->name,
+            'department_unit_type' => $primaryDepartment?->unit_type,
+            'scope_kind' => $departmentIds !== [] ? 'department' : ($zone ? 'zone' : 'office_wide'),
+            'scope_label' => $this->scopeChips($def->zone_id, $departmentIds),
+            'applies_to' => $this->scopeSentence($def->zone_id, $departmentIds),
             'duration_label' => $this->overlaps->durationLabel(
                 max(1, (int) $def->min_duration_days),
                 $def->max_duration_days,
@@ -614,13 +669,39 @@ class WorkflowController extends Controller
         ];
     }
 
-    protected function scopeSentence(?string $zoneId, ?string $departmentId): string
+    /**
+     * Compact presentation label used by the list/detail views: "Finance ·
+     * division, ICT · unit", or the zone name, or "Entire Office".
+     *
+     * @param  list<string>  $departmentIds
+     */
+    protected function scopeChips(?string $zoneId, array $departmentIds): string
     {
-        if ($departmentId) {
-            $dept = Department::find($departmentId);
+        if ($departmentIds !== []) {
+            $names = Department::whereIn('id', $departmentIds)->get()
+                ->map(fn (Department $dept) => $dept->name . ($dept->unit_type ? ' · ' . str_replace('_', ' ', $dept->unit_type) : ''))
+                ->all();
 
-            return 'Employees in ' . ($dept?->name ?? $departmentId)
-                . ($dept?->unit_type ? ' (' . str_replace('_', ' ', $dept->unit_type) . ')' : '');
+            return count($names) === 0 ? 'Custom scope' : implode(', ', $names);
+        }
+
+        if ($zoneId) {
+            $zone = Zone::find($zoneId);
+
+            return $zone?->name ?? $zoneId;
+        }
+
+        return 'Entire Office';
+    }
+
+    protected function scopeSentence(?string $zoneId, array $departmentIds): string
+    {
+        if ($departmentIds !== []) {
+            $labels = Department::whereIn('id', $departmentIds)->get()
+                ->map(fn (Department $dept) => $dept->name . ($dept->unit_type ? ' (' . str_replace('_', ' ', $dept->unit_type) . ')' : ''))
+                ->all();
+
+            return 'Employees in ' . implode(', ', $labels);
         }
 
         if ($zoneId) {
@@ -630,6 +711,35 @@ class WorkflowController extends Controller
         }
 
         return 'All employees (entire office)';
+    }
+
+    /**
+     * The multi-scope department set submitted by the builder: the new
+     * department_ids list wins, the legacy single department_id is wrapped
+     * into a one-element set for older clients.
+     */
+    protected function idsFromForm(StoreWorkflowRequest|UpdateWorkflowRequest $form): array
+    {
+        if ($form->has('department_ids')) {
+            return $this->normalizeIdList($form->input('department_ids'));
+        }
+
+        $legacy = $form->input('department_id');
+
+        return $legacy ? [$legacy] : [];
+    }
+
+    /**
+     * @param  mixed  $value
+     * @return list<string>
+     */
+    protected function normalizeIdList($value): array
+    {
+        if (is_string($value)) {
+            $value = [$value];
+        }
+
+        return array_values(array_unique(array_filter(array_map('strval', (array) $value))));
     }
 
     protected function generatedTitle(string $leaveTypeId, int $version): string

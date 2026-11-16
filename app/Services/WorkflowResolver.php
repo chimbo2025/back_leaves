@@ -630,7 +630,8 @@ class WorkflowResolver
         $day = now()->toDateString();
 
         $definitions = WorkflowDefinition::where('leave_type_id', $request->leave_type_id)
-            ->where('is_active', true);
+            ->where('is_active', true)
+            ->with('departments:id');
 
         if ($request->days !== null) {
             $definitions->where('min_duration_days', '<=', $request->days);
@@ -653,29 +654,18 @@ class WorkflowResolver
                     return false;
                 }
 
-                return $definition->department_id === null
-                    || in_array($definition->department_id, $placementIds, true);
+                // Multi-scope: the definition applies to a SET of placement
+                // nodes; it matches when any of them is the requester's unit,
+                // division, department or an ancestor department.
+                $scopeIds = $definition->departmentIds();
+
+                return $scopeIds === [] || count(array_intersect($scopeIds, $placementIds)) > 0;
             })
             ->all();
 
         usort($matches, function (WorkflowDefinition $a, WorkflowDefinition $b) use ($employee, $deptChain) {
-            $score = function (WorkflowDefinition $definition) use ($employee, $deptChain): int {
-                $scopeScore = match (true) {
-                    $definition->department_id !== null && $definition->department_id === $employee->unit_id => 400,
-                    $definition->department_id !== null && $definition->department_id === $employee->division_id => 300,
-                    $definition->department_id !== null && $definition->department_id === $employee->department_id => 200,
-                    $definition->department_id !== null && in_array($definition->department_id, $deptChain, true) => 100,
-                    $definition->zone_id !== null => 50,
-                    default => 0,
-                };
-
-                // Within a placement level, a definition narrowed to the
-                // employee's zone wins over the same department-wide scope.
-                return $scopeScore + ($definition->zone_id !== null ? 10 : 0);
-            };
-
-            return [$score($b), $b->min_duration_days, $b->version]
-                <=> [$score($a), $a->min_duration_days, $a->version];
+            return [$this->scopeScore($b, $employee, $deptChain), $b->min_duration_days, $b->version]
+                <=> [$this->scopeScore($a, $employee, $deptChain), $a->min_duration_days, $a->version];
         });
 
         if (count($matches) < 2) {
@@ -685,25 +675,49 @@ class WorkflowResolver
         // Equal-specificity conflict detection: if the top two candidates
         // resolve to the same scope score, the configuration is ambiguous
         // and must not be silently resolved.
-        $scoreFn = function (WorkflowDefinition $definition) use ($employee, $deptChain): int {
-            $scopeScore = match (true) {
-                $definition->department_id !== null && $definition->department_id === $employee->unit_id => 400,
-                $definition->department_id !== null && $definition->department_id === $employee->division_id => 300,
-                $definition->department_id !== null && $definition->department_id === $employee->department_id => 200,
-                $definition->department_id !== null && in_array($definition->department_id, $deptChain, true) => 100,
-                $definition->zone_id !== null => 50,
-                default => 0,
-            };
-            return $scopeScore + ($definition->zone_id !== null ? 10 : 0);
-        };
-
-        if ($scoreFn($matches[0]) === $scoreFn($matches[1])) {
+        if ($this->scopeScore($matches[0], $employee, $deptChain) === $this->scopeScore($matches[1], $employee, $deptChain)) {
             throw ValidationException::withMessages([
                 'workflow' => 'Multiple active workflows match this request with equal scope specificity. Resolve the configuration conflict before submitting.',
             ]);
         }
 
         return $matches[0] ?? null;
+    }
+
+    /**
+     * How specifically a definition targets the requester's placement.
+     *
+     * Most specific first: the employee's independent unit, then their
+     * division, then their own department, then an ancestor department, then
+     * the zone, then the office-wide default. For a multi-scope definition
+     * the best (most specific) matching member of the set wins. A definition
+     * narrowed to the employee's zone breaks a tie within the same placement.
+     */
+    protected function scopeScore(WorkflowDefinition $definition, Employee $employee, array $deptChain): int
+    {
+        $ids = $definition->departmentIds();
+        $scopeScore = 0;
+
+        if ($ids === []) {
+            // No placement restriction: office-wide (or zone-narrowed).
+            $scopeScore = $definition->zone_id !== null ? 50 : 0;
+        } else {
+            foreach ($ids as $id) {
+                if ($id === $employee->unit_id) {
+                    $scopeScore = max($scopeScore, 400);
+                } elseif ($id === $employee->division_id) {
+                    $scopeScore = max($scopeScore, 300);
+                } elseif ($id === $employee->department_id) {
+                    $scopeScore = max($scopeScore, 200);
+                } elseif (in_array($id, $deptChain, true)) {
+                    $scopeScore = max($scopeScore, 100);
+                }
+            }
+        }
+
+        // Within a placement level, a definition narrowed to the
+        // employee's zone wins over the same department-wide scope.
+        return $scopeScore + ($definition->zone_id !== null ? 10 : 0);
     }
 
     /**
