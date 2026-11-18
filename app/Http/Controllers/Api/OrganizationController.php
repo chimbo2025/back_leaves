@@ -395,7 +395,32 @@ class OrganizationController extends Controller
             ->orderBy('name')
             ->get();
 
-        return response()->json(['data' => $roles]);
+        // Also include roles created in Admin settings (roles table) that
+        // don't already have a matching approval_roles entry, so every role
+        // an admin creates is available in the workflow builder.
+        $existingCodes = $roles->pluck('code')->map(fn ($c) => strtolower((string) $c))->all();
+        $existingNames = $roles->pluck('name')->map(fn ($n) => strtolower((string) $n))->all();
+
+        $extra = Role::all()->filter(function ($role) use ($existingCodes, $existingNames) {
+            $code = strtolower((string) $role->id);
+            $name = strtolower((string) $role->name);
+            return ! in_array($code, $existingCodes, true) && ! in_array($name, $existingNames, true);
+        })->map(function ($role) {
+            return new ApprovalRole([
+                'id' => strtolower((string) $role->id),
+                'code' => strtolower((string) $role->id),
+                'name' => $role->name,
+                'name_sw' => null,
+                'description' => null,
+                'resolution_type' => 'employee_approval_roles',
+                'is_active' => true,
+                'is_system_protected' => false,
+            ]);
+        })->values();
+
+        $merged = $roles->concat($extra)->sortByDesc('is_system_protected')->sortBy('name')->values();
+
+        return response()->json(['data' => $merged]);
     }
 
     protected function seqId(string $prefix): string

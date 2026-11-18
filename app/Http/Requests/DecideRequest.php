@@ -51,6 +51,7 @@ class DecideRequest extends FormRequest
             // storage/app/signatures/ and linked from the seal row —
             // optional on every decision; sealing never depends on storage.
             'signature_image' => ['nullable', 'string', 'max:4200000'],
+            'is_paid' => ['nullable', 'boolean'],
         ];
     }
 }

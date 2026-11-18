@@ -257,7 +257,7 @@ class LeaveRequestService
      * @return array{toast: string, blocked_by_handover: bool}
      */
     /**
-     * @param  array{signature_hash?:?string,signature_type?:?string,signature_image?:?string,ip?:?string,user_agent?:?string}  $signature
+     * @param  array{signature_hash?:?string,signature_type?:?string,signature_image?:?string,is_paid?:?bool,ip?:?string,user_agent?:?string}  $signature
      */
     public function decide(LeaveRequest $request, Employee $actor, string $decision, ?string $comments = null, ?string $endDate = null, array $signature = []): array
     {
@@ -387,7 +387,7 @@ class LeaveRequestService
             throw ValidationException::withMessages(['end_date' => 'Set the return date (date of resumption) before approving this leave.']);
         }
 
-        return DB::transaction(function () use ($request, $actor, $decision, $comments, $endDate, $mine, $signature) {
+        return DB::transaction(function () use ($request, $actor, $decision, $comments, $endDate, $mine, $signature, $isFinalStep) {
             $updated = WorkflowAssignment::where('id', $mine->id)
                 ->where('status', 'pending')
                 ->update(['status' => 'done', 'decided_at' => now()]);
@@ -408,6 +408,10 @@ class LeaveRequestService
                 $days = $this->policy->dayCount($request->start_date->toDateString(), $endDate);
                 $request->update(['end_date' => $endDate, 'days' => $days]);
                 $this->storeDates($request);
+            }
+
+            if ($decision === 'approved' && $isFinalStep && array_key_exists('is_paid', $signature)) {
+                $request->update(['is_paid' => $signature['is_paid']]);
             }
 
             $outcome = $this->advanceAfterDecision($request, $actor, $decision, $comments, $mine);

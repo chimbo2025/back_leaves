@@ -11,7 +11,7 @@ class LeaveRequest extends Model
     protected $fillable = [
         'ref', 'employee_id', 'leave_type_id', 'policy_id', 'policy_snapshot', 'required_docs_provided',
         'medical_required', 'eligibility_checked_at', 'eligibility_blockers', 'eligibility_ok', 'policy_version', 'workflow_version',
-        'start_date', 'end_date', 'days', 'is_half_day', 'is_emergency_exception', 'exception_reason', 'reason',
+        'start_date', 'end_date', 'days', 'is_paid', 'is_half_day', 'is_emergency_exception', 'exception_reason', 'reason',
         'status', 'current_owner_id', 'submitted_at', 'decided_at',
     ];
 
@@ -21,6 +21,7 @@ class LeaveRequest extends Model
             'start_date' => 'date:Y-m-d',
             'end_date' => 'date:Y-m-d',
             'is_half_day' => 'boolean',
+            'is_paid' => 'boolean',
             'is_emergency_exception' => 'boolean',
             'policy_snapshot' => 'array',
             'required_docs_provided' => 'array',

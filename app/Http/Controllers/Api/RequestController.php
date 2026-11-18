@@ -157,6 +157,7 @@ class RequestController extends Controller
                 'signature_hash' => $form->validated('signature_hash'),
                 'signature_type' => $form->validated('signature_type'),
                 'signature_image' => $form->validated('signature_image'),
+                'is_paid' => $form->validated('is_paid'),
                 'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]
@@ -605,7 +606,7 @@ class RequestController extends Controller
             ->map(fn ($rows) => $rows->first());
 
         return [
-            ...$request->only('id', 'ref', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
+            ...$request->only('id', 'ref', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'is_paid', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
             'employee' => $request->employee ? $request->employee->avatarSummary() : null,
             'leave_type' => $request->leaveType?->only('code', 'name'),
             'assignments' => $assignments->map(fn ($a) => [
