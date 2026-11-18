@@ -491,6 +491,26 @@ class WorkflowController extends Controller
         foreach ($steps as $i => $step) {
             $approvalRoleId = $step['approval_role_id'] ?? null;
             $role = $approvalRoleId ? ApprovalRole::find($approvalRoleId) : null;
+
+            // Roles created in Admin settings live in the `roles` table, not
+            // `approval_roles`. Create a corresponding approval_roles entry so
+            // the foreign key constraint is satisfied.
+            if (! $role && $approvalRoleId) {
+                $systemRole = \App\Models\Role::where('id', $approvalRoleId)->first();
+                if ($systemRole) {
+                    $role = ApprovalRole::firstOrCreate(
+                        ['id' => $systemRole->id],
+                        [
+                            'code' => strtolower((string) $systemRole->id),
+                            'name' => $systemRole->name,
+                            'resolution_type' => 'employee_approval_roles',
+                            'is_active' => true,
+                            'is_system_protected' => false,
+                        ]
+                    );
+                }
+            }
+
             $roleCode = $role?->code;
             // An explicitly selected approver is authoritative: it forces the
             // assigned-approver mode and clears any fallback role (which would
