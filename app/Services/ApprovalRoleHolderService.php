@@ -159,6 +159,29 @@ class ApprovalRoleHolderService
     protected function legacyHolderIds(string $approvalRoleCode): array
     {
         $today = now()->toDateString();
+
+        // If this is a role from the `roles` table (Admin-created), look up
+        // employees by the actual role id directly, bypassing the legacy map.
+        $systemRole = \App\Models\Role::whereRaw('LOWER(id) = ?', [strtolower($approvalRoleCode)])->first();
+        if ($systemRole) {
+            $ids = EmployeeRole::where('role_id', $systemRole->id)
+                ->where(function ($q) {
+                    $q->whereNull('active')->orWhere('active', true);
+                })
+                ->where(function ($q) use ($today) {
+                    $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $today);
+                })
+                ->where(function ($q) use ($today) {
+                    $q->whereNull('effective_to')->orWhereDate('effective_to', '>=', $today);
+                })
+                ->pluck('employee_id')
+                ->all();
+
+            if ($ids !== []) {
+                return $ids;
+            }
+        }
+
         $legacyIds = ApprovalRoleMap::legacyRoleIdsFor($approvalRoleCode);
 
         return EmployeeRole::whereIn('role_id', $legacyIds)
