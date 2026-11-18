@@ -19,8 +19,8 @@ class ApprovalRoleMap
         'supervisor' => 'SUPERVISOR',
         'department_head' => 'DEPT_HEAD',
         'zonal_head' => 'ZONAL_HEAD',
-        'unit_head' => 'UNIT_HEAD',
-        'division_head' => 'DIVISION_HEAD',
+        'unit_head' => 'ROLE_UNIT_HEAD',
+        'division_head' => 'ROLE_DIVISION_HEAD',
         'hr_reviewer' => 'HR',
         'hr_recorder' => 'HR_RECORDER',
         'deputy_dpp' => 'DEPUTY_DPP',
@@ -53,12 +53,20 @@ class ApprovalRoleMap
      */
     public static function legacyRoleIdsFor(string $approvalRoleCode): array
     {
-        $ids = [strtoupper($approvalRoleCode)];
+        $ids = [];
 
+        // Direct mapping from approval role code to legacy role id.
         if (isset(self::LEGACY_BY_CODE[$approvalRoleCode])) {
             $ids[] = self::LEGACY_BY_CODE[$approvalRoleCode];
         }
 
-        return array_values(array_unique($ids));
+        // The roles table may store the id with a ROLE_ prefix (e.g.
+        // ROLE_UNIT_HEAD). Try both the bare uppercased code and the
+        // prefixed form so employees granted either variant are found.
+        $upper = strtoupper($approvalRoleCode);
+        $ids[] = $upper;
+        $ids[] = 'ROLE_' . $upper;
+
+        return array_values(array_unique(array_filter($ids)));
     }
 }
