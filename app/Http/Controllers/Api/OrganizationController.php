@@ -407,7 +407,7 @@ class OrganizationController extends Controller
             return ! in_array($code, $existingCodes, true) && ! in_array($name, $existingNames, true);
         })->map(function ($role) {
             return new ApprovalRole([
-                'id' => strtolower((string) $role->id),
+                'id' => (string) $role->id,
                 'code' => strtolower((string) $role->id),
                 'name' => $role->name,
                 'name_sw' => null,

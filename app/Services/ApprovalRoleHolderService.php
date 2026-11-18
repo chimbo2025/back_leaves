@@ -34,6 +34,24 @@ class ApprovalRoleHolderService
             return $role;
         }
 
+        // Roles created in Admin settings live in the `roles` table, not
+        // `approval_roles`. Synthesise an ApprovalRole on the fly so the
+        // holder lookup still works for them.
+        $systemRole = \App\Models\Role::where('id', $idOrCode)->first();
+        if (! $systemRole) {
+            $systemRole = \App\Models\Role::whereRaw('LOWER(id) = ?', [strtolower($idOrCode)])->first();
+        }
+        if ($systemRole) {
+            return new ApprovalRole([
+                'id' => (string) $systemRole->id,
+                'code' => strtolower((string) $systemRole->id),
+                'name' => $systemRole->name,
+                'resolution_type' => 'employee_approval_roles',
+                'is_active' => true,
+                'is_system_protected' => false,
+            ]);
+        }
+
         if ($legacyCode = ApprovalRoleMap::approvalCodeFor($idOrCode)) {
             return ApprovalRole::where('code', $legacyCode)->first();
         }

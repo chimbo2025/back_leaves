@@ -47,9 +47,12 @@ class WorkflowResolver
         // resolver can still resolve holders for them.
         if (! $approvalRole) {
             $systemRole = \App\Models\Role::where('id', $approvalRoleId)->first();
+            if (! $systemRole) {
+                $systemRole = \App\Models\Role::whereRaw('LOWER(id) = ?', [strtolower($approvalRoleId)])->first();
+            }
             if ($systemRole) {
                 $approvalRole = new ApprovalRole([
-                    'id' => strtolower((string) $systemRole->id),
+                    'id' => (string) $systemRole->id,
                     'code' => strtolower((string) $systemRole->id),
                     'name' => $systemRole->name,
                     'resolution_type' => 'employee_approval_roles',

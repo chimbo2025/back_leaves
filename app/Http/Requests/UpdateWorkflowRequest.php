@@ -171,6 +171,19 @@ class UpdateWorkflowRequest extends FormRequest
 
             $role = ApprovalRole::where('id', $roleId)->orWhere('code', $roleId)->first();
             if (! $role) {
+                $systemRole = \App\Models\Role::where('id', $roleId)->first();
+                if ($systemRole) {
+                    $role = new ApprovalRole([
+                        'id' => (string) $systemRole->id,
+                        'code' => strtolower((string) $systemRole->id),
+                        'name' => $systemRole->name,
+                        'resolution_type' => 'employee_approval_roles',
+                        'is_active' => true,
+                        'is_system_protected' => false,
+                    ]);
+                }
+            }
+            if (! $role) {
                 continue;
             }
 
