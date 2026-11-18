@@ -462,8 +462,8 @@ it('notifies the owner when a waiver is decided', function () {
     $waiverId = $this->postJson('/api/leave-waivers', [
         'leave_type_id' => 'lt1',
         'requested_action' => 'employee_requested_deferral',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-10',
+        'leave_cycle_start' => now()->subDays(10)->toDateString(),
+        'leave_cycle_end' => now()->addDays(10)->toDateString(),
         'reason' => 'Deferring two weeks.',
     ], p4Headers($owner))->assertStatus(201)->json('data.id');
 

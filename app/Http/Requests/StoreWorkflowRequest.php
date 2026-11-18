@@ -2,6 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\ApprovalRole;
+use App\Models\Employee;
+use App\Services\ApprovalRoleHolderService;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -44,15 +47,19 @@ class StoreWorkflowRequest extends FormRequest
             'effective_to' => ['sometimes', 'nullable', 'date'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:500'],
             'is_active' => ['sometimes', 'boolean'],
+            // New builder contract: every step names its approver. Legacy
+            // clients that omit it keep the dynamic role-resolution path.
+            'strict_approvers' => ['sometimes', 'boolean'],
             'steps' => ['required', 'array', 'min:1'],
             // Dynamic approval-role catalog replaces hard-coded role strings.
             'steps.*.approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.approver_employee_id' => ['sometimes', 'nullable', 'string', Rule::exists('employees', 'id')],
             'steps.*.fallback_approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
             'steps.*.fallback_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
             // New catalog steps carry their routing mode explicitly. Legacy
             // steps (role_required only) are still accepted and defaulted.
-            'steps.*.assignment_mode' => ['sometimes', 'required_with:steps.*.approval_role_id', Rule::in(['shared_queue', 'assigned_approver'])],
-            'steps.*.scope_type' => ['sometimes', 'required_with:steps.*.approval_role_id', Rule::in(['requester_department', 'requester_division', 'requester_unit', 'requester_zone', 'office_wide'])],
+            'steps.*.assignment_mode' => ['sometimes', Rule::in(['shared_queue', 'assigned_approver'])],
+            'steps.*.scope_type' => ['sometimes', Rule::in(['requester_department', 'requester_division', 'requester_unit', 'requester_zone', 'office_wide'])],
             // Legacy pointer, kept so pre-catalog definitions remain writable.
             'steps.*.role_required' => ['nullable', Rule::exists('roles', 'id')],
             'steps.*.step_order' => ['sometimes', 'integer', 'min:1', 'distinct'],
@@ -62,8 +69,9 @@ class StoreWorkflowRequest extends FormRequest
             'steps.*.escalation_after_sla' => ['sometimes', 'boolean'],
             'steps.*.conditions' => ['sometimes', 'nullable', 'array'],
             'steps.*.note' => ['sometimes', 'nullable', 'string', 'max:255'],
-            // A workflow definition is a rule about roles, never a roster:
-            // naming an individual inside a step is rejected outright.
+            // The approver is carried by approver_employee_id. The old
+            // generic person pointers stay prohibited so a caller cannot
+            // smuggle a roster entry in through another key.
             'steps.*.employee_id' => ['prohibited'],
             'steps.*.assignee_id' => ['prohibited'],
             'steps.*.user_id' => ['prohibited'],
@@ -74,6 +82,8 @@ class StoreWorkflowRequest extends FormRequest
     {
         $validator->after(function (Validator $validator) {
             $this->validateStepShape($validator);
+            $this->validateApprovers($validator);
+            $this->validateDuplicateStepOrder($validator);
             $this->validateDurationRange($validator);
         });
     }
@@ -101,6 +111,95 @@ class StoreWorkflowRequest extends FormRequest
                     'The fallback role must be different from the approval role.',
                 );
             }
+        }
+    }
+
+    /**
+     * Validate the selected approver.
+     *
+     * The new builder sends `strict_approvers: true`, which makes an approver
+     * mandatory for every step. Older clients may omit it and keep the legacy
+     * dynamic resolution path (and existing definitions untouched).
+     */
+    protected function validateApprovers(Validator $validator): void
+    {
+        $strict = filter_var($this->input('strict_approvers', false), FILTER_VALIDATE_BOOLEAN);
+        $holders = app(ApprovalRoleHolderService::class);
+
+        foreach ((array) $this->input('steps', []) as $index => $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+
+            $roleId = $step['approval_role_id'] ?? null;
+            $approverId = $step['approver_employee_id'] ?? null;
+
+            if ($strict && empty($approverId)) {
+                $validator->errors()->add(
+                    "steps.{$index}.approver_employee_id",
+                    'Select an approver for every step.',
+                );
+
+                continue;
+            }
+
+            if (empty($approverId)) {
+                continue;
+            }
+
+            if (empty($roleId)) {
+                $validator->errors()->add(
+                    "steps.{$index}.approver_employee_id",
+                    'Select an approval role before choosing an approver.',
+                );
+
+                continue;
+            }
+
+            $role = ApprovalRole::where('id', $roleId)->orWhere('code', $roleId)->first();
+            if (! $role) {
+                // The exists rule already reports an unknown role.
+                continue;
+            }
+
+            $employee = Employee::find($approverId);
+            if (! $employee || ! $employee->is_active) {
+                $validator->errors()->add(
+                    "steps.{$index}.approver_employee_id",
+                    'The selected approver must be an active employee.',
+                );
+
+                continue;
+            }
+
+            if (! $holders->employeeHolds($employee, $role)) {
+                $validator->errors()->add(
+                    "steps.{$index}.approver_employee_id",
+                    "{$employee->full_name} does not hold the {$role->name} role.",
+                );
+            }
+        }
+    }
+
+    /** A definition cannot carry two steps with the same sequence number. */
+    protected function validateDuplicateStepOrder(Validator $validator): void
+    {
+        $seen = [];
+
+        foreach ((array) $this->input('steps', []) as $index => $step) {
+            if (! is_array($step) || ! isset($step['step_order'])) {
+                continue;
+            }
+
+            $order = (int) $step['step_order'];
+            if (isset($seen[$order])) {
+                $validator->errors()->add(
+                    "steps.{$index}.step_order",
+                    'Two steps cannot share the same sequence number.',
+                );
+            }
+
+            $seen[$order] = true;
         }
     }
 

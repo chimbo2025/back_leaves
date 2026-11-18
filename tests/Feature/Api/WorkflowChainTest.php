@@ -147,6 +147,12 @@ it('pauses final approval on the handover gate and resumes once handovers are ac
     $r3 = LeaveRequest::where('ref', 'LVE-2026-0153')->first();
     expect($r3->status)->toBe('under_review');
 
+    // The gate now ignores court cases whose next hearing has already passed
+    // (the seed's 2026-10-11 hearing is behind us); the gate pausing final
+    // approval is what this test exercises, so give the case a live hearing.
+    ProsecutionCase::where('ref', 'CR-2026-0142')
+        ->update(['next_hearing_date' => now()->addDays(14)->toDateString()]);
+
     // FINAL authority approval attempt -> blocked by e9's active court case
     $blocked = $this->postJson("/api/requests/{$r3->id}/decide", [
         'decision' => 'approved',

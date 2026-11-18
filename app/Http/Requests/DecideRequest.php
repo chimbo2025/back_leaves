@@ -47,6 +47,10 @@ class DecideRequest extends FormRequest
             // LeaveApprovalSignatureService); presence is what is enforced.
             'signature_hash' => ['required_if:decision,approved', 'nullable', 'string', 'max:255'],
             'signature_type' => ['nullable', 'string', Rule::in(['digital', 'wet_ink_reference'])],
+            // The drawn/uploaded ceremony image (data URL). Stored under
+            // storage/app/signatures/ and linked from the seal row —
+            // optional on every decision; sealing never depends on storage.
+            'signature_image' => ['nullable', 'string', 'max:4200000'],
         ];
     }
 }

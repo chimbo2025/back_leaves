@@ -11,7 +11,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * One row per approval action, capturing the actor's signature at the moment
  * of decision. The signature_value is an opaque reference (e.g., HSM token ID),
  * never the raw private key. The signature_hash is a SHA-256 of the canonical
- * payload for integrity verification.
+ * payload for integrity verification. The optional drawn/uploaded signature
+ * image from the decision ceremony is stored as a file under
+ * storage/app/signatures/{request_id}/ with the relative path in
+ * signature_image_path — never inline in this row.
  */
 class ApprovalSignature extends Model
 {
@@ -43,6 +46,7 @@ class ApprovalSignature extends Model
         'approval_action',
         'signature_type',
         'signature_value',
+        'signature_image_path',
         'signature_hash',
         'signed_at',
         'ip_address',

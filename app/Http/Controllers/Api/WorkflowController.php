@@ -14,6 +14,7 @@ use App\Models\LeaveType;
 use App\Models\WorkflowDefinition;
 use App\Models\WorkflowStep;
 use App\Models\Zone;
+use App\Services\ApprovalRoleHolderService;
 use App\Services\AuditService;
 use App\Services\WorkflowOverlapGuard;
 use App\Services\WorkflowResolver;
@@ -57,7 +58,27 @@ class WorkflowController extends Controller
     public function __construct(
         protected AuditService $audit,
         protected WorkflowOverlapGuard $overlaps,
+        protected ApprovalRoleHolderService $holders,
     ) {}
+
+    /**
+     * Employees who hold the given approval role. Powers the builder's
+     * "Approver" dropdown so an administrator can only pick a real holder.
+     */
+    public function roleHolders(string $approvalRole): JsonResponse
+    {
+        $role = $this->holders->resolveRole($approvalRole);
+
+        if (! $role) {
+            throw ValidationException::withMessages([
+                'approval_role' => 'Unknown approval role.',
+            ]);
+        }
+
+        return response()->json([
+            'data' => $this->holders->holdersFor($role)->values(),
+        ]);
+    }
 
     /**
      * Paginated/filterable list.
@@ -70,7 +91,7 @@ class WorkflowController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = WorkflowDefinition::with(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole']);
+        $query = WorkflowDefinition::with(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole', 'steps.approver']);
 
         $this->applyListFilters($query, $request);
 
@@ -103,7 +124,7 @@ class WorkflowController extends Controller
 
     public function show(WorkflowDefinition $workflowDefinition): JsonResponse
     {
-        $workflowDefinition->load(['leaveType', 'department', 'zone', 'steps.approvalRole']);
+        $workflowDefinition->load(['leaveType', 'department', 'zone', 'steps.approvalRole', 'steps.approver']);
 
         return response()->json(['data' => $this->decorate($workflowDefinition)]);
     }
@@ -181,7 +202,7 @@ class WorkflowController extends Controller
             'steps' => count($steps),
         ]);
 
-        return response()->json(['data' => $this->decorate($def->load(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole']))], 201);
+        return response()->json(['data' => $this->decorate($def->load(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole', 'steps.approver']))], 201);
     }
 
     /** Patch workflow fields/steps (frontend updateWorkflow). */
@@ -273,7 +294,7 @@ class WorkflowController extends Controller
         ]);
 
         return response()->json([
-            'data' => $this->decorate($workflowDefinition->fresh(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole'])),
+            'data' => $this->decorate($workflowDefinition->fresh(['leaveType', 'department', 'zone', 'departments', 'steps.approvalRole', 'steps.approver'])),
         ]);
     }
 
@@ -296,6 +317,7 @@ class WorkflowController extends Controller
             'department_ids.*' => ['sometimes', 'nullable', 'string', Rule::exists('departments', 'id')],
             'steps' => ['sometimes', 'array'],
             'steps.*.approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.approver_employee_id' => ['sometimes', 'nullable', Rule::exists('employees', 'id')],
             'steps.*.assignment_mode' => ['sometimes', 'nullable', 'string'],
             'steps.*.scope_type' => ['sometimes', 'nullable', 'string'],
             'steps.*.is_mandatory' => ['sometimes', 'boolean'],
@@ -336,13 +358,18 @@ class WorkflowController extends Controller
             $role = ! empty($step['approval_role_id'])
                 ? ApprovalRole::find($step['approval_role_id'])
                 : null;
+            $approver = ! empty($step['approver_employee_id'])
+                ? Employee::find($step['approver_employee_id'])
+                : null;
             [$defaultMode, $defaultScope] = $this->defaultStepConfig($role?->code);
 
             return [
                 'step_order' => $i + 1,
                 'approval_role_id' => $step['approval_role_id'] ?? null,
                 'approval_role_name' => $role?->name,
-                'assignment_mode' => $step['assignment_mode'] ?? $defaultMode,
+                'approver_employee_id' => $step['approver_employee_id'] ?? null,
+                'approver_name' => $approver?->full_name,
+                'assignment_mode' => $approver ? 'assigned_approver' : ($step['assignment_mode'] ?? $defaultMode),
                 'scope_type' => $step['scope_type'] ?? $defaultScope,
                 'is_mandatory' => (bool) ($step['is_mandatory'] ?? true),
                 'note' => $step['note'] ?? null,
@@ -456,6 +483,11 @@ class WorkflowController extends Controller
             $approvalRoleId = $step['approval_role_id'] ?? null;
             $role = $approvalRoleId ? ApprovalRole::find($approvalRoleId) : null;
             $roleCode = $role?->code;
+            // An explicitly selected approver is authoritative: it forces the
+            // assigned-approver mode and clears any fallback role (which would
+            // otherwise redirect an unstaffed step away from the chosen person).
+            $approverId = $step['approver_employee_id'] ?? null;
+            $hasApprover = ! empty($approverId);
 
             [$defaultMode, $defaultScope] = $this->defaultStepConfig($roleCode);
 
@@ -463,8 +495,11 @@ class WorkflowController extends Controller
                 'workflow_def_id' => $def->id,
                 'step_order' => $i + 1,
                 'approval_role_id' => $approvalRoleId,
-                'fallback_approval_role_id' => $step['fallback_approval_role_id'] ?? $step['fallback_role_id'] ?? null,
-                'assignment_mode' => $step['assignment_mode'] ?? $defaultMode,
+                'approver_employee_id' => $hasApprover ? $approverId : null,
+                'fallback_approval_role_id' => $hasApprover
+                    ? null
+                    : ($step['fallback_approval_role_id'] ?? $step['fallback_role_id'] ?? null),
+                'assignment_mode' => $hasApprover ? 'assigned_approver' : ($step['assignment_mode'] ?? $defaultMode),
                 'scope_type' => $step['scope_type'] ?? $defaultScope,
                 // Legacy pointer: explicit value wins, otherwise derive it from
                 // the catalog role for pre-catalog consumers. Never built from

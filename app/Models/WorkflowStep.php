@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WorkflowStep extends Model
 {
     protected $fillable = [
-        'workflow_def_id', 'step_order', 'approval_role_id', 'fallback_approval_role_id', 'role_required',
+        'workflow_def_id', 'step_order', 'approval_role_id', 'approver_employee_id', 'fallback_approval_role_id', 'role_required',
         'assignment_mode', 'scope_type',
         'sla_days', 'is_mandatory', 'allow_same_person_as_previous_steps', 'conditions', 'escalation_after_sla', 'note',
     ];
@@ -30,6 +30,15 @@ class WorkflowStep extends Model
     public function approvalRole(): BelongsTo
     {
         return $this->belongsTo(ApprovalRole::class, 'approval_role_id');
+    }
+
+    /**
+     * The employee explicitly chosen for this step. Null on legacy/configured
+     * definitions, which keep resolving through the approval role.
+     */
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'approver_employee_id');
     }
 
     /** @see legacyRole() */

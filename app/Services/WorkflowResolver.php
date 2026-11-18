@@ -13,6 +13,7 @@ use App\Models\LeaveType;
 use App\Models\Role;
 use App\Models\WorkflowDefinition;
 use App\Models\WorkflowStep;
+use App\Support\ApprovalRoleMap;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -83,7 +84,19 @@ class WorkflowResolver
         });
 
         if ($active) {
-            return ['assignee' => Employee::find($active->delegate_employee_id), 'via' => 'delegation'];
+            $delegate = Employee::find($active->delegate_employee_id);
+
+            // Preserve the delegator for the assignment record and the audit
+            // trail; `decide()` recognises the delegation by actor, this id,
+            // and the step's role — without it a delegate could never be
+            // authorised for a role-resolved (legacy) step.
+            return [
+                'assignee' => $delegate,
+                'via' => 'delegation',
+                'selected_approver_id' => $active->delegator_employee_id,
+                'delegated_from_id' => $active->delegator_employee_id,
+                'delegated' => true,
+            ];
         }
 
         // 2. Standing holder — resolved above.
@@ -101,6 +114,97 @@ class WorkflowResolver
 
         // No holder found
         return $this->noHolder('no valid holder for approval role ' . $approvalRoleId . ' (resolution_type=' . $resolutionType . ')');
+    }
+
+    /**
+     * Resolve a step whose approver was explicitly chosen in the builder.
+     *
+     * - The selected employee must still exist and be active.
+     * - Self-approval is refused with a message naming the step.
+     * - An active delegation by that employee routes the work to the delegate;
+     *   `delegated_from_id` preserves the original approver for the audit trail.
+     *
+     * @param  Collection<int, Delegation>|null  $delegations
+     * @return array{assignee: ?Employee, via: string, selected_approver_id?: string, delegated_from_id?: ?string, delegated?: bool, reason?: string}
+     */
+    protected function resolveSelectedApprover(Employee $requester, WorkflowStep $step, ?Collection $delegations = null): array
+    {
+        $approver = Employee::find($step->approver_employee_id);
+        $stepLabel = $step->approvalRole?->name ?? ($step->role_required ?? 'approval');
+
+        if (! $approver || ! $approver->is_active) {
+            throw ValidationException::withMessages([
+                'workflow' => "Step {$step->step_order} ({$stepLabel}) selects an approver who is missing or inactive. Choose a different approver.",
+            ]);
+        }
+
+        if ($approver->id === $requester->id) {
+            throw ValidationException::withMessages([
+                'workflow' => "Step {$step->step_order} ({$stepLabel}) selects {$approver->full_name}, the person submitting this request. Choose a different approver.",
+            ]);
+        }
+
+        $delegation = $this->activeDelegationFor($approver, $step, $delegations);
+
+        if ($delegation) {
+            $delegate = Employee::find($delegation->delegate_employee_id);
+
+            // Never delegate back to the requester; fall through to the
+            // selected approver in that case.
+            if ($delegate && $delegate->is_active && $delegate->id !== $requester->id) {
+                return [
+                    'assignee' => $delegate,
+                    'via' => 'delegation',
+                    'selected_approver_id' => $approver->id,
+                    'delegated_from_id' => $approver->id,
+                    'delegated' => true,
+                ];
+            }
+        }
+
+        return [
+            'assignee' => $approver,
+            'via' => 'standing',
+            'selected_approver_id' => $approver->id,
+            'delegated_from_id' => null,
+            'delegated' => false,
+        ];
+    }
+
+    /**
+     * The active delegation (if any) that lets someone act for this approver.
+     * A delegation matching the step's role is preferred, but a general
+     * delegation held by the selected approver also applies.
+     *
+     * @param  Collection<int, Delegation>|null  $delegations
+     */
+    protected function activeDelegationFor(Employee $approver, WorkflowStep $step, ?Collection $delegations = null): ?Delegation
+    {
+        $roleIds = array_values(array_filter([
+            $step->approval_role_id,
+            $step->role_required,
+            $step->role_required ? ApprovalRoleMap::approvalCodeFor($step->role_required) : null,
+        ]));
+
+        $today = now()->toDateString();
+
+        $candidates = ($delegations ?? Delegation::all())->filter(function (Delegation $d) use ($approver, $today) {
+            return $d->active
+                && $d->delegator_employee_id === $approver->id
+                && Carbon::parse($d->start_date)->lte(Carbon::parse($today))
+                && Carbon::parse($d->end_date)->gte(Carbon::parse($today));
+        })->values();
+
+        if ($candidates->isEmpty()) {
+            return null;
+        }
+
+        $matched = $candidates->first(function (Delegation $d) use ($roleIds) {
+            return in_array($d->approval_role_id, $roleIds, true)
+                || in_array($d->role_id, $roleIds, true);
+        });
+
+        return $matched ?? $candidates->first();
     }
 
     /**
@@ -342,9 +446,14 @@ class WorkflowResolver
         $lastAssigneeId = null;
 
         foreach ($steps as $step) {
-            // Skip final-authority steps here — they are appended last, after
-            // the configured chain, when the policy demands a final sign-off.
-            if ($this->isFinalAuthorityStep($step)) {
+            $hasExplicitApprover = (bool) $step->approver_employee_id;
+
+            // Only *legacy* final-authority steps are appended last, after the
+            // configured chain, when the policy demands a final sign-off. A
+            // step that names its approver is part of the configured chain and
+            // must run at its configured position — otherwise a 4-step chain
+            // silently loses its final-authority step and collapses.
+            if ($this->isFinalAuthorityStep($step) && ! $hasExplicitApprover) {
                 continue;
             }
 
@@ -355,7 +464,12 @@ class WorkflowResolver
             $assignmentMode = $step->assignment_mode ?? 'assigned_approver';
             $scopeType = $step->scope_type ?? 'requester_department';
 
-            if ($assignmentMode === 'shared_queue') {
+            if ($step->approver_employee_id) {
+                // The builder stores an explicit employee for the step; that
+                // person is authoritative. Delegation still applies, and the
+                // original approver is retained for the audit trail.
+                $entry = $this->resolveSelectedApprover($employee, $step, $delegations);
+            } elseif ($assignmentMode === 'shared_queue') {
                 $holders = $this->eligibleHolders($employee, $approvalRoleId, $scopeType);
                 if ($holders->isEmpty() && $step->fallback_approval_role_id) {
                     $holders = $this->eligibleHolders($employee, $step->fallback_approval_role_id, $scopeType);
@@ -401,14 +515,14 @@ class WorkflowResolver
                 ];
                 $lastAssigneeId = null;
                 continue;
-            }
+            } else {
+                $entry = $this->resolveApprover($employee, $approvalRoleId, $delegations, $scopeType);
 
-            $entry = $this->resolveApprover($employee, $approvalRoleId, $delegations, $scopeType);
-
-            // Fallback approval role: only used when the primary role has no
-            // standing holder.
-            if (! ($entry['assignee'] ?? null) && $step->fallback_approval_role_id) {
-                $entry = $this->resolveApprover($employee, $step->fallback_approval_role_id, $delegations, $scopeType);
+                // Fallback approval role: only used when the primary role has
+                // no standing holder.
+                if (! ($entry['assignee'] ?? null) && $step->fallback_approval_role_id) {
+                    $entry = $this->resolveApprover($employee, $step->fallback_approval_role_id, $delegations, $scopeType);
+                }
             }
 
             if (! ($entry['assignee'] ?? null)) {
@@ -451,8 +565,11 @@ class WorkflowResolver
 
                 // Collapse a duplicate approver only when it is the immediately
                 // preceding step (non-consecutive repeats remain distinct
-                // sign-offs). The step can opt out explicitly.
-                if ($assigneeId !== null && $assigneeId === $lastAssigneeId
+                // sign-offs) and the step was not explicitly configured. A
+                // step that names its approver is kept verbatim: it is a real
+                // decision point, not a derived one.
+                if (! $hasExplicitApprover
+                    && $assigneeId !== null && $assigneeId === $lastAssigneeId
                     && ! ($step->allow_same_person_as_previous_steps ?? false)) {
                     $chain[] = [
                         'step_id' => $step->id,
@@ -580,6 +697,38 @@ class WorkflowResolver
     protected function finalAuthorityEntry(LeaveRequest $request, Employee $employee, Collection $steps, Collection $present): ?array
     {
         $finalStep = $steps->first(fn (WorkflowStep $step) => $this->isFinalAuthorityStep($step));
+        $slaDays = $finalStep?->sla_days ?? 3;
+        $dueAt = Carbon::parse($request->submitted_at ?? now())->addDays($slaDays)->toDateTimeString();
+
+        // A selected approver on the final-authority step is authoritative too.
+        if ($finalStep?->approver_employee_id) {
+            $entry = $this->resolveSelectedApprover($employee, $finalStep, Delegation::all());
+            $assignee = $entry['assignee'] ?? null;
+
+            if (! $assignee || $present->contains($assignee->id)) {
+                return null;
+            }
+
+            $present->push($assignee->id);
+
+            return [
+                'step_id' => $finalStep->id,
+                'role' => 'FINAL_AUTHORITY',
+                'role_label' => 'Final Authority — DPP',
+                'assignee_id' => $assignee->id,
+                'assignee_name' => $assignee->full_name,
+                'assignee_initials' => $assignee->avatar_initials,
+                'via' => $entry['via'],
+                'selected_approver_id' => $entry['selected_approver_id'] ?? $finalStep->approver_employee_id,
+                'delegated_from_id' => $entry['delegated_from_id'] ?? null,
+                'delegated' => $entry['delegated'] ?? false,
+                'sla_days' => $slaDays,
+                'due_at' => $dueAt,
+                'note' => $finalStep->note ?? null,
+                'assignment_mode' => 'assigned_approver',
+            ];
+        }
+
         $approvalRoleId = $finalStep?->approval_role_id ?: 'final_authority';
         $finalHolder = $this->standingHolder($employee, $approvalRoleId, 'both', exclude: $employee->id);
 
@@ -597,8 +746,8 @@ class WorkflowResolver
             'assignee_name' => $finalHolder->full_name,
             'assignee_initials' => $finalHolder->avatar_initials,
             'via' => 'standing',
-            'sla_days' => $finalStep?->sla_days ?? 3,
-            'due_at' => Carbon::parse($request->submitted_at ?? now())->addDays($finalStep?->sla_days ?? 3)->toDateTimeString(),
+            'sla_days' => $slaDays,
+            'due_at' => $dueAt,
             'note' => $finalStep?->note ?? null,
         ];
     }

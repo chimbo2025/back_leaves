@@ -3,6 +3,7 @@
 use App\Models\CaseHandover;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
+use App\Models\ProsecutionCase;
 use App\Services\PermissionService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -310,6 +311,12 @@ it('refuses to propose a handover on a request the caller cannot see', function 
 
     // Nothing was written.
     expect(CaseHandover::where('request_id', $target)->where('to_employee_id', 'e7')->exists())->toBeFalse();
+
+    // The gate now ignores court cases whose next hearing has already passed
+    // (seeds carry fixed dates) — move e7's live case ahead so the proposal
+    // has a case to cover, whatever the run date.
+    ProsecutionCase::where('ref', 'CR-2026-0155')
+        ->update(['next_hearing_date' => now()->addDays(14)->toDateString()]);
 
     // Someone who can see the request may still propose one, and the proposer is
     // the caller rather than a fallback to the requester. One handover row is

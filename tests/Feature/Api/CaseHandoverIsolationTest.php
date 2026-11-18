@@ -2,6 +2,7 @@
 
 use App\Models\EmployeeRole;
 use App\Models\Permission;
+use App\Models\ProsecutionCase;
 use App\Models\Role;
 use Illuminate\Support\Facades\Cache;
 
@@ -47,6 +48,11 @@ function stripToAdminViewOnly(): string
 function handoverFixture(): array
 {
     // e9 owns open court case CR-2026-0142: propose as HR, accept as e8.
+    // The gate now ignores court cases whose next hearing has already
+    // passed, and the seed's 2026-10-11 hearing is in the past — bump the
+    // hearing forward inside the test transaction so the case blocks.
+    ProsecutionCase::where('ref', 'CR-2026-0142')
+        ->update(['next_hearing_date' => now()->addDays(14)->toDateString()]);
     $requester = apiLogin('u9');
     // e9 carries seeded maternity leave 2026-10-01..2026-12-23, so the
     // fixture lives in January 2027 to avoid the overlap guard.

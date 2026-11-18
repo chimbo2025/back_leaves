@@ -55,8 +55,8 @@ it('lets an employee create and submit their own waiver', function () {
     $created = $this->postJson('/api/leave-waivers', [
         'leave_type_id' => 'lt1',
         'requested_action' => 'employee_declined',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-10',
+        'leave_cycle_start' => now()->subDays(10)->toDateString(),
+        'leave_cycle_end' => now()->addDays(10)->toDateString(),
         'reason' => 'Shifting annual leave to a quieter month.',
     ], authHeaders($token))->assertStatus(201);
 
@@ -96,8 +96,8 @@ it('lets a reviewer review and approve a waiver and records an auditable effect'
     $id = $this->postJson('/api/leave-waivers', [
         'leave_type_id' => 'lt1',
         'requested_action' => 'employee_requested_deferral',
-        'leave_cycle_start' => '2026-11-01',
-        'leave_cycle_end' => '2026-11-10',
+        'leave_cycle_start' => now()->subDays(4)->toDateString(),
+        'leave_cycle_end' => now()->addDays(5)->toDateString(),
         'reason' => 'Deferring two weeks.',
     ], authHeaders($token))->json('data.id');
     $this->postJson("/api/leave-waivers/{$id}/submit", [], authHeaders($token))->assertOk();

@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\BalanceTransaction;
 use App\Models\Employee;
 use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Policy version resolution + balance/eligibility engine.
@@ -199,6 +201,64 @@ class PolicyService
             'ledgerDebits' => $ledger['debits'],
             'remaining' => (float) $remaining,
             'pct' => $accrued <= 0 ? 0 : (int) round($used / $accrued * 100),
+        ];
+    }
+
+    /**
+     * Where the shared annual bank went this service year, for the approver's
+     * "why is the balance low" note. Usage is grouped per leave type (every
+     * approved type draws from the shared bank); ledger rows are the non-dynamic
+     * adjustments (waivers, deductions, corrections) with their reasons.
+     */
+    public function balanceBreakdown(Employee $employee, string $annualLeaveTypeId): array
+    {
+        [$start, $end] = $this->serviceYearWindow($employee->hire_date, Carbon::parse(now()->toDateString()));
+
+        $usedByType = LeaveRequest::where('employee_id', $employee->id)
+            ->where(function ($q) {
+                $q->where('status', 'approved')
+                    ->orWhere(fn ($pending) => $pending->where('status', 'under_review')->whereNotNull('end_date'));
+            })
+            ->where('start_date', '>=', $start->toDateString())
+            ->where('start_date', '<', $end->toDateString())
+            ->with('leaveType')
+            ->select('leave_type_id', DB::raw('SUM(days) as used_days'))
+            ->groupBy('leave_type_id')
+            ->orderByDesc('used_days')
+            ->get()
+            ->map(fn ($row) => [
+                'code' => $row->leaveType?->code,
+                'name' => $row->leaveType?->name,
+                'days' => (float) $row->used_days,
+            ])
+            ->values();
+
+        $ledgerRows = BalanceTransaction::where('employee_id', $employee->id)
+            ->where('leave_type_id', $annualLeaveTypeId)
+            ->whereNotIn('transaction_type', BalanceTransaction::DYNAMICALLY_REPRESENTED_TYPES)
+            ->orderByDesc('id')
+            ->limit(8)
+            ->get()
+            ->map(fn ($row) => [
+                'transaction_type' => $row->transaction_type,
+                'direction' => $row->direction,
+                'amount' => (float) $row->amount,
+                'reason_code' => $row->reason_code,
+                'reason' => $row->reason,
+                'created_at' => $row->created_at?->toDateTimeString(),
+            ]);
+
+        $bal = $this->balanceFor($employee->id, $annualLeaveTypeId);
+
+        return [
+            'service_year_start' => $start->toDateString(),
+            'service_year_end' => $end->copy()->subDay()->toDateString(),
+            'earned' => (float) $bal['accrued'] - (float) $bal['carryOver'],
+            'carry_over' => (float) $bal['carryOver'],
+            'used' => (float) $bal['used'],
+            'remaining' => (float) $bal['remaining'],
+            'used_by_type' => $usedByType,
+            'ledger_rows' => $ledgerRows,
         ];
     }
 

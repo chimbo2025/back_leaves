@@ -148,6 +148,7 @@ class LeaveRequestService
                     'request_id' => $request->id,
                     'step_id' => $entry['step_id'],
                     'assigned_employee_id' => $entry['assignee_id'],
+                    'delegated_from_employee_id' => $entry['delegated_from_id'] ?? null,
                     'assigned_role_id' => $entry['role'],
                     'status' => $firstAssignment === null ? 'pending' : 'queued',
                     'due_at' => $entry['due_at'],
@@ -233,6 +234,7 @@ class LeaveRequestService
                 $assignment = $request->assignments()->create([
                     'step_id' => $entry['step_id'],
                     'assigned_employee_id' => $entry['assignee_id'],
+                    'delegated_from_employee_id' => $entry['delegated_from_id'] ?? null,
                     'assigned_role_id' => $entry['role'],
                     'status' => $firstAssignment === null ? 'pending' : 'queued',
                     'due_at' => $entry['due_at'],
@@ -255,7 +257,7 @@ class LeaveRequestService
      * @return array{toast: string, blocked_by_handover: bool}
      */
     /**
-     * @param  array{signature_hash?:?string,signature_type?:?string,ip?:?string,user_agent?:?string}  $signature
+     * @param  array{signature_hash?:?string,signature_type?:?string,signature_image?:?string,ip?:?string,user_agent?:?string}  $signature
      */
     public function decide(LeaveRequest $request, Employee $actor, string $decision, ?string $comments = null, ?string $endDate = null, array $signature = []): array
     {
@@ -285,23 +287,22 @@ class LeaveRequestService
         }
 
         $isSharedQueue = $current->step && ($current->step->assignment_mode ?? 'assigned_approver') === 'shared_queue';
+        $isDelegate = false;
 
         if ($isSharedQueue) {
             // Verify the actor is an eligible holder of the role within scope.
             $resolver = app(WorkflowResolver::class);
             $holders = $resolver->eligibleHolders($request->employee, $current->assigned_role_id, $current->step->scope_type ?? 'requester_department');
             $eligible = $holders->contains('id', $actor->id);
-            // Delegation: an active delegate of an eligible holder may also act.
+            // Delegation: an active delegate of one of the eligible holders may
+            // also act.
             if (! $eligible) {
-                $eligible = Delegation::where('delegate_employee_id', $actor->id)
-                    ->where(function ($q) use ($current) {
-                        $q->where('approval_role_id', $current->assigned_role_id)
-                            ->orWhere('role_id', $current->assigned_role_id);
-                    })
-                    ->where('active', true)
-                    ->whereDate('start_date', '<=', now()->toDateString())
-                    ->whereDate('end_date', '>=', now()->toDateString())
-                    ->exists();
+                $isDelegate = $this->activeDelegationExists(
+                    $actor,
+                    $holders->pluck('id')->all(),
+                    $current->assigned_role_id,
+                );
+                $eligible = $isDelegate;
             }
             if (! $eligible) {
                 throw ValidationException::withMessages([
@@ -309,29 +310,25 @@ class LeaveRequestService
                 ]);
             }
         } else {
-            // Assigned approver mode: ownership or active delegation.
+            // Assigned approver mode: ownership or an active delegation by the
+            // *person this step is assigned to*.
             //
-            // A delegation stores both the legacy role id and the catalog
-            // approval role id, while the assignment stores whichever pointer
-            // the step carried (new chains use the catalog code, legacy chains
-            // the role id). Match either column so a delegate is recognised in
-            // both worlds — matching only role_id silently locked delegates
-            // out of every step created through the approval-role catalog.
-            $isDelegate = Delegation::where('delegate_employee_id', $actor->id)
-                ->where(function ($q) use ($current) {
-                    $q->where('role_id', $current->assigned_role_id)
-                        ->orWhere('approval_role_id', $current->assigned_role_id);
-                })
-                ->where('active', true)
-                ->whereDate('start_date', '<=', now()->toDateString())
-                ->whereDate('end_date', '>=', now()->toDateString())
-                ->exists();
+            // The assignment may store the delegate as the assignee (an active
+            // delegation at submission time routes the work to the delegate).
+            // In that case the assignee is acting in that delegate capacity,
+            // not as the originally selected approver.
+            //
+            // The delegation must also belong to the expected approver for
+            // this assignment. Matching any delegation for the role let a
+            // same-role delegate of a *different* approver (another department
+            // head, for example) decide a step that was never theirs.
+            $expectedApproverId = $current->delegated_from_employee_id ?: $current->assigned_employee_id;
+            $isDelegate = $expectedApproverId !== null
+                && $this->activeDelegationExists($actor, [$expectedApproverId], $current->assigned_role_id);
+
             if ($current->assigned_employee_id !== $actor->id && ! $isDelegate) {
-                $hasPending = $pending->isNotEmpty();
                 throw ValidationException::withMessages([
-                    'authorization' => $hasPending
-                        ? 'This step is not assigned to you — you cannot decide it.'
-                        : 'There are no pending steps to decide.',
+                    'authorization' => 'This step is not assigned to you — you cannot decide it.',
                 ]);
             }
         }
@@ -363,17 +360,9 @@ class LeaveRequestService
         // authorized at creation time (the delegator had to genuinely hold
         // the role), and delegates need hold no role codes of their own.
         // The signature ceremony on approvals still applies to everyone.
-        $delegated = Delegation::where('delegate_employee_id', $actor->id)
-            ->where(function ($q) use ($current) {
-                $q->where('role_id', $current->assigned_role_id)
-                    ->orWhere('approval_role_id', $current->assigned_role_id);
-            })
-            ->where('active', true)
-            ->whereDate('start_date', '<=', now()->toDateString())
-            ->whereDate('end_date', '>=', now()->toDateString())
-            ->exists();
-
-        if (! $delegated) {
+        // `$isDelegate` was scoped above to the approver this assignment
+        // expects, so an unrelated same-role delegate is not exempt.
+        if (! $isDelegate) {
             // NOTE: $user (lowercase, single variable) is deliberate — the
             // catalog-integrity scanner matches ->can($var, 'module',
             // 'action') and would miss $actor->user.
@@ -423,12 +412,26 @@ class LeaveRequestService
 
             $outcome = $this->advanceAfterDecision($request, $actor, $decision, $comments, $mine);
             if (! $outcome['blocked_by_handover']) {
+                // Audit the whole decision context: which configured step ran,
+                // who the builder chose as approver, who actually acted (the
+                // delegate when a delegation was active), the decision, the
+                // comment and the timestamp.
+                $selectedApproverId = $mine->delegated_from_employee_id ?: $mine->assigned_employee_id;
+
                 $this->audit->append('leave_request', (string) $request->id, $decision, $actor->user_id, [
                     'ref' => $request->ref,
+                    'step_id' => $mine->step_id,
+                    'step_order' => $mine->step?->step_order,
                     'step_role' => $mine->assigned_role_id,
+                    'selected_approver_id' => $selectedApproverId,
+                    'selected_approver_name' => $mine->delegatedFrom?->full_name ?? $mine->assignee?->full_name,
+                    'acting_employee_id' => $actor->id,
+                    'acting_employee_name' => $actor->full_name,
+                    'delegated' => $mine->delegated_from_employee_id !== null,
                     'decision' => $decision,
                     'return_date' => $request->end_date?->toDateString(),
                     'comments' => $comments,
+                    'decided_at' => now()->toDateTimeString(),
                 ], reason: $comments);
 
                 // Every surviving decision is sealed server-side: the hash is
@@ -440,6 +443,7 @@ class LeaveRequestService
                 $this->signatures->record($action, $actor, $request, array_filter([
                     'signature_value' => $signature['signature_hash'] ?? null,
                     'signature_type' => $signature['signature_type'] ?? null,
+                    'signature_image' => $signature['signature_image'] ?? null,
                     'ip' => $signature['ip'] ?? null,
                     'user_agent' => $signature['user_agent'] ?? null,
                 ], fn ($v) => $v !== null));
@@ -447,6 +451,33 @@ class LeaveRequestService
 
             return $outcome;
         });
+    }
+
+    /**
+     * Is the actor an active delegate of one of the given approvers, for the
+     * assignment's role? Scoping to `$delegatorIds` is what keeps a
+     * same-role delegation from authorising a different approver's step.
+     *
+     * @param  list<string|null>  $delegatorIds
+     */
+    protected function activeDelegationExists(Employee $actor, array $delegatorIds, string $assignmentRoleId): bool
+    {
+        $delegatorIds = array_values(array_filter($delegatorIds));
+
+        if ($delegatorIds === []) {
+            return false;
+        }
+
+        return Delegation::where('delegate_employee_id', $actor->id)
+            ->whereIn('delegator_employee_id', $delegatorIds)
+            ->where(function ($q) use ($assignmentRoleId) {
+                $q->where('role_id', $assignmentRoleId)
+                    ->orWhere('approval_role_id', $assignmentRoleId);
+            })
+            ->where('active', true)
+            ->whereDate('start_date', '<=', now()->toDateString())
+            ->whereDate('end_date', '>=', now()->toDateString())
+            ->exists();
     }
 
     protected function advanceAfterDecision(LeaveRequest $request, Employee $actor, string $decision, ?string $comments, WorkflowAssignment $done): array
@@ -490,9 +521,10 @@ class LeaveRequestService
             ApprovalAction::where('assignment_id', $done->id)->orderByDesc('acted_at')->first()?->delete();
             $done->update(['status' => 'pending', 'decided_at' => null]);
             $request->update(['current_owner_id' => null]);
-            $this->notifications->notify($employee->id, 'handover_proposed', "{$request->ref} cannot complete until your open cases are handed over: ".implode(', ', $blockers['refs']), relatedEntityType: 'leave_request', relatedEntityId: $request->id);
+            $refs = implode(', ', $blockers['refs']);
+            $this->notifications->notify($employee->id, 'handover_proposed', "{$request->ref} haiwezi kukamilika hadi kesi zako wazi zikabidhiwe: {$refs}. Fungua ombi hili na ubofye \"Kabidhi kesi zako\" ili kumkabidhi mwenzako aziweze; mwombaji atapokea taarifa na kuikamilisha, kisha mwidhinishaji wa mwisho anaweza kutoa likizo yako. / Cannot complete until your open cases are handed over and accepted ({$refs}). Open the request and use \"Hand over my cases\".", relatedEntityType: 'leave_request', relatedEntityId: $request->id);
 
-            return ['toast' => 'Final approval deferred — outstanding case handovers must be accepted first.', 'blocked_by_handover' => true];
+            return ['toast' => 'Final approval deferred (idhini ya mwisho imeahirishwa) — the requester must propose a handover of every open case and the recipient must accept it first. / Mwombaji lazima awaachie kesi zake wazi na mpokeaji azikubali kwanza.', 'blocked_by_handover' => true];
         }
 
         $request->update(['status' => 'approved', 'decided_at' => now(), 'current_owner_id' => $employee->id]);

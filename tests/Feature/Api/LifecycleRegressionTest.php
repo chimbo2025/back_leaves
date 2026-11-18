@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\EmployeeRole;
 use App\Models\LeaveRequest;
 use App\Models\Permission;
+use App\Models\ProsecutionCase;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\CaseHandoverService;
@@ -264,6 +265,12 @@ it('refuses a handover proposal from someone who can read but not act', function
     // to any colleague they named.
     $hr = apiLogin('u3');
     $hrUser = User::where('username', 'u3')->firstOrFail();
+
+    // The handover gate now ignores court cases whose next hearing has
+    // already passed, and the seeds carry fixed hearings — keep the fixture
+    // stable on any run date by moving CR-2026-0155 (e7's live case) ahead.
+    ProsecutionCase::where('ref', 'CR-2026-0155')
+        ->update(['next_hearing_date' => now()->addDays(14)->toDateString()]);
 
     // Find a request owned by somebody other than the caller, that the caller can
     // see, and whose owner still has an open court case.

@@ -9,10 +9,13 @@ use App\Models\Employee;
 use App\Models\LeaveDocument;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
+use App\Models\ApprovalAction;
+use App\Models\ApprovalSignature;
 use App\Models\WorkflowAssignment;
 use App\Services\AccessScopeService;
 use App\Services\AuditService;
 use App\Services\CaseHandoverService;
+use App\Services\LeaveApprovalSignatureService;
 use App\Services\LeaveRequestService;
 use App\Services\PermissionService;
 use App\Services\PolicyService;
@@ -33,6 +36,7 @@ class RequestController extends Controller
         protected PermissionService $permissions,
         protected AccessScopeService $accessScope,
         protected AuditService $audit,
+        protected LeaveApprovalSignatureService $signatures,
     ) {}
 
     /**
@@ -50,7 +54,7 @@ class RequestController extends Controller
             return response()->json(['message' => 'Missing permission: requests.view.'], 403);
         }
 
-        $query = LeaveRequest::with(['employee', 'leaveType', 'policy', 'currentOwner', 'assignments.assignee']);
+        $query = LeaveRequest::with(['employee', 'leaveType', 'policy', 'currentOwner', 'assignments.assignee', 'assignments.step.approvalRole']);
 
         if ($request->input('scope') === 'all') {
             $this->accessScope->applyLeaveRequestScope($query, $user);
@@ -58,7 +62,34 @@ class RequestController extends Controller
             $query->where('employee_id', $user->employee?->id);
         }
 
-        return response()->json(['data' => $query->latest()->paginate((int) $request->input('per_page', 20))]);
+        $paginator = $query->latest()->paginate((int) $request->input('per_page', 20));
+
+        // Merge the latest decision per assignment onto the raw models so the
+        // compact list payload carries the same decision/decision_comment keys
+        // as resource() — without this the in-flight chain view cannot show why
+        // earlier approvers signed off. Transient attributes (not persisted).
+        $assignmentIds = $paginator->getCollection()
+            ->flatMap(fn ($leaveRequest) => $leaveRequest->assignments->pluck('id'))
+            ->unique()
+            ->values();
+
+        if ($assignmentIds->isNotEmpty()) {
+            $latestActions = ApprovalAction::whereIn('assignment_id', $assignmentIds)
+                ->orderByDesc('id')
+                ->get()
+                ->groupBy('assignment_id')
+                ->map(fn ($rows) => $rows->first());
+
+            foreach ($paginator->getCollection() as $leaveRequest) {
+                foreach ($leaveRequest->assignments as $assignment) {
+                    $latest = $latestActions->get($assignment->id);
+                    $assignment->setAttribute('decision', $latest?->decision);
+                    $assignment->setAttribute('decision_comment', $latest?->comments);
+                }
+            }
+        }
+
+        return response()->json(['data' => $paginator]);
     }
 
     public function store(StoreLeaveRequest $request): JsonResponse
@@ -125,6 +156,7 @@ class RequestController extends Controller
             [
                 'signature_hash' => $form->validated('signature_hash'),
                 'signature_type' => $form->validated('signature_type'),
+                'signature_image' => $form->validated('signature_image'),
                 'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]
@@ -135,6 +167,41 @@ class RequestController extends Controller
             'blocked_by_handover' => $outcome['blocked_by_handover'],
             'data' => $this->resource($leaveRequest->fresh(['employee', 'leaveType', 'policy', 'assignments', 'currentOwner'])),
         ]);
+    }
+
+    /**
+     * The approval signature seals for this request — one per recorded
+     * decision, oldest first. The letter renders the drawn/uploaded image
+     * for each distinct signer inline, so this payload carries the image
+     * bytes as data URLs; it is small (one mark per approver) and only
+     * leaves the server for people the caller is already allowed to see.
+     */
+    public function signatures(Request $request, LeaveRequest $leaveRequest): JsonResponse
+    {
+        $this->authorize('view', $leaveRequest);
+
+        $seals = ApprovalSignature::where('leave_request_id', $leaveRequest->id)
+            ->orderBy('signed_at')
+            ->orderBy('id')
+            ->get();
+
+        $names = Employee::whereIn('id', $seals->pluck('actor_id')->unique())->pluck('full_name', 'id');
+
+        $data = $seals->map(fn (ApprovalSignature $seal) => [
+            'id' => $seal->id,
+            'actor_id' => $seal->actor_id,
+            'actor_name' => $names->get($seal->actor_id),
+            'approval_action' => $seal->approval_action,
+            'signature_type' => $seal->signature_type,
+            'signature_hash' => $seal->signature_hash,
+            'signature_hash_prefix' => substr((string) $seal->signature_hash, 0, 12),
+            'signed_at' => $seal->signed_at?->toDateTimeString(),
+            // Null for decisions made before the image was captured (or when
+            // the ceremony supplied only the opaque attestation hash).
+            'image_data_url' => $this->signatures->imageDataUrl($seal),
+        ])->values();
+
+        return response()->json(['data' => $data]);
     }
 
     /**
@@ -275,6 +342,7 @@ class RequestController extends Controller
             'annual_balance' => $policy->balanceFor($employee->id, $annualType->id),
             'annual_request_number' => $ordinal,
             'payment_eligible' => $ordinal !== null && $ordinal % 2 === 0,
+            'balance_breakdown' => $policy->balanceBreakdown($employee, $annualType->id),
         ]]);
     }
 
@@ -526,7 +594,15 @@ class RequestController extends Controller
 
     protected function resource(LeaveRequest $request): array
     {
-        $assignments = $request->assignments()->get()->loadMissing('assignee');
+        $assignments = $request->assignments()->with(['assignee', 'step.approvalRole'])->get();
+
+        // Latest decision per assignment so the chain UI can show why the
+        // previous approver approved / returned / rejected. One query, grouped.
+        $latestActions = ApprovalAction::whereIn('assignment_id', $assignments->pluck('id'))
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy('assignment_id')
+            ->map(fn ($rows) => $rows->first());
 
         return [
             ...$request->only('id', 'ref', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
@@ -534,13 +610,24 @@ class RequestController extends Controller
             'leave_type' => $request->leaveType?->only('code', 'name'),
             'assignments' => $assignments->map(fn ($a) => [
                 'id' => $a->id,
+                'step_id' => $a->step_id,
                 'role' => $a->assigned_role_id,
+                // Catalog display name (e.g. "HR Reviewer") when the step was
+                // built against an approval role. Fall back to the stored role
+                // id for legacy assignments so old clients keep working.
+                'role_label' => $a->step?->approvalRole?->name ?? $a->assigned_role_id,
                 'assignee_id' => $a->assigned_employee_id,
                 'assignee_name' => $a->assignee?->full_name,
                 'assignee_initials' => $a->assignee?->avatar_initials,
+                'via' => $a->delegated_from_employee_id !== null ? 'delegation' : 'standing',
+                'delegated_from_id' => $a->delegated_from_employee_id,
                 'status' => $a->status,
                 'due_at' => $a->due_at?->toDateTimeString(),
                 'decided_at' => $a->decided_at?->toDateTimeString(),
+                // Why the step was decided (latest recorded action), so the
+                // current approver can read the reasoning of those before.
+                'decision' => $latestActions->get($a->id)?->decision,
+                'decision_comment' => $latestActions->get($a->id)?->comments,
             ])->values(),
         ];
     }

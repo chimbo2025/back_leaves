@@ -166,6 +166,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // does not swallow it, and gated on the same code - the policy does the
         // per-document medical/ownership decision in both cases.
         Route::get('{leaveRequest}/documents/{document}/download', [RequestController::class, 'downloadDocument'])->middleware('permission:documents.view');
+        Route::get('{leaveRequest}/signatures', [RequestController::class, 'signatures']);
         Route::delete('{leaveRequest}/documents/{document}', [RequestController::class, 'deleteDocument'])->middleware('permission:documents.delete');
         Route::get('{leaveRequest}/approval-insight', [RequestController::class, 'approvalInsight'])->middleware('permission:requests.view');
         Route::get('{leaveRequest}', [RequestController::class, 'show']);
@@ -245,6 +246,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // reports the chain plus any overlapping active definition without
         // persisting anything.
         Route::match(['post', 'put'], 'check', [WorkflowController::class, 'check']);
+        // Employees holding an approval role, for the builder's approver
+        // dropdown. Declared before the {workflowDefinition} wildcard.
+        Route::get('role-holders/{approvalRole}', [WorkflowController::class, 'roleHolders']);
         Route::get('{workflowDefinition}', [WorkflowController::class, 'show']);
         Route::post('/', [WorkflowController::class, 'store'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.create']);
         Route::match(['put', 'patch'], '{workflowDefinition}', [WorkflowController::class, 'update'])->middleware(['permission:policies.edit_policy', 'permission:approval_workflows.update']);
@@ -299,6 +303,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('can-final-approve', [CaseController::class, 'canFinalApprove'])->middleware('permission:case_handovers.view');
     });
     Route::prefix('handovers')->group(function () {
+        // Declared before the {leaveRequest} wildcard: pending handovers
+        // addressed to the caller, across every request.
+        Route::get('pending-mine', [CaseController::class, 'pendingMine'])->middleware('permission:case_handovers.view');
         Route::get('{leaveRequest}', [CaseController::class, 'handovers'])->middleware('permission:case_handovers.view')->whereNumber('leaveRequest');
         Route::post('{leaveRequest}/propose', [CaseController::class, 'propose'])->middleware('permission:case_handovers.create')->whereNumber('leaveRequest');
         Route::post('{handover}/accept', [CaseController::class, 'accept'])->middleware('permission:case_handovers.accept');
