@@ -40,10 +40,37 @@ class UpdateWorkflowRequest extends FormRequest
             'strict_approvers' => ['sometimes', 'boolean'],
             'steps' => ['sometimes', 'array', 'min:1'],
             // Dynamic approval-role catalog replaces hard-coded role strings.
-            'steps.*.approval_role_id' => ['nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.approval_role_id' => ['nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected approval role is invalid.');
+                }
+            }],
             'steps.*.approver_employee_id' => ['sometimes', 'nullable', 'string', Rule::exists('employees', 'id')],
-            'steps.*.fallback_approval_role_id' => ['nullable', Rule::exists('approval_roles', 'id')],
-            'steps.*.fallback_role_id' => ['nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.fallback_approval_role_id' => ['nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected fallback role is invalid.');
+                }
+            }],
+            'steps.*.fallback_role_id' => ['nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected fallback role is invalid.');
+                }
+            }],
             'steps.*.assignment_mode' => ['sometimes', Rule::in(['shared_queue', 'assigned_approver'])],
             'steps.*.scope_type' => ['sometimes', Rule::in(['requester_department', 'requester_division', 'requester_unit', 'requester_zone', 'office_wide'])],
             // Legacy pointer, kept so pre-catalog definitions remain writable.

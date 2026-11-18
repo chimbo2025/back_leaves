@@ -42,6 +42,23 @@ class WorkflowResolver
             ->orWhere('code', $approvalRoleId)
             ->first();
 
+        // Roles created in Admin settings live in the `roles` table, not
+        // `approval_roles`. Synthesise an ApprovalRole on the fly so the
+        // resolver can still resolve holders for them.
+        if (! $approvalRole) {
+            $systemRole = \App\Models\Role::where('id', $approvalRoleId)->first();
+            if ($systemRole) {
+                $approvalRole = new ApprovalRole([
+                    'id' => strtolower((string) $systemRole->id),
+                    'code' => strtolower((string) $systemRole->id),
+                    'name' => $systemRole->name,
+                    'resolution_type' => 'employee_approval_roles',
+                    'is_active' => true,
+                    'is_system_protected' => false,
+                ]);
+            }
+        }
+
         // Steps written before the catalog existed carry a legacy role code
         // (SUPERVISOR, DEPT_HEAD, ...). Translate it rather than special-casing
         // each caller.

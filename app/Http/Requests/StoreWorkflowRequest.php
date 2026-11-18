@@ -52,10 +52,37 @@ class StoreWorkflowRequest extends FormRequest
             'strict_approvers' => ['sometimes', 'boolean'],
             'steps' => ['required', 'array', 'min:1'],
             // Dynamic approval-role catalog replaces hard-coded role strings.
-            'steps.*.approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.approval_role_id' => ['sometimes', 'nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected approval role is invalid.');
+                }
+            }],
             'steps.*.approver_employee_id' => ['sometimes', 'nullable', 'string', Rule::exists('employees', 'id')],
-            'steps.*.fallback_approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
-            'steps.*.fallback_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.fallback_approval_role_id' => ['sometimes', 'nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected fallback role is invalid.');
+                }
+            }],
+            'steps.*.fallback_role_id' => ['sometimes', 'nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected fallback role is invalid.');
+                }
+            }],
             // New catalog steps carry their routing mode explicitly. Legacy
             // steps (role_required only) are still accepted and defaulted.
             'steps.*.assignment_mode' => ['sometimes', Rule::in(['shared_queue', 'assigned_approver'])],
