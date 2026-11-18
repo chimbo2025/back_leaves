@@ -316,7 +316,16 @@ class WorkflowController extends Controller
             'department_ids' => ['sometimes', 'nullable', 'array'],
             'department_ids.*' => ['sometimes', 'nullable', 'string', Rule::exists('departments', 'id')],
             'steps' => ['sometimes', 'array'],
-            'steps.*.approval_role_id' => ['sometimes', 'nullable', Rule::exists('approval_roles', 'id')],
+            'steps.*.approval_role_id' => ['sometimes', 'nullable', function ($attribute, $value, $fail) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
+                    || \App\Models\Role::where('id', $value)->exists();
+                if (! $exists) {
+                    $fail('The selected approval role is invalid.');
+                }
+            }],
             'steps.*.approver_employee_id' => ['sometimes', 'nullable', Rule::exists('employees', 'id')],
             'steps.*.assignment_mode' => ['sometimes', 'nullable', 'string'],
             'steps.*.scope_type' => ['sometimes', 'nullable', 'string'],
