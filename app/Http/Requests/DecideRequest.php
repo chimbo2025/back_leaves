@@ -46,7 +46,6 @@ class DecideRequest extends FormRequest
                 'max:4000',
                 'required_if:decision,rejected',
                 'required_if:decision,returned',
-                'min:3',
             ],
             'end_date' => ['nullable', 'date'],
             // Ceremony attestation for approvals: the Approvals UI only enables
