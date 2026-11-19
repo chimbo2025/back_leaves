@@ -83,7 +83,7 @@ class ReportingLineController extends Controller
         // reach the employee they are being assigned as supervisor for.
         if ($this->createsCycle($employee->id, $data['supervisor_employee_id'], $data['effective_from'], $data['effective_to'] ?? null)) {
             return response()->json([
-                'message' => 'This assignment would create a circular reporting chain.',
+                'message' => 'Ugawaji huu utaunda mzunguko wa mnyororo wa kuripoti.',
                 'errors' => ['supervisor_employee_id' => ['Circular reference detected.']],
             ], 422);
         }
@@ -101,7 +101,7 @@ class ReportingLineController extends Controller
 
             if ($hasActivePrimary) {
                 return response()->json([
-                    'message' => 'Employee already has an active primary supervisor.',
+                    'message' => 'Mtumishi tayari ana msimamizi mkuu anayetumika.',
                     'errors' => ['relationship_type' => ['Retire the existing primary line first.']],
                 ], 422);
             }
@@ -164,7 +164,7 @@ class ReportingLineController extends Controller
                 ->exists();
             if ($exists) {
                 return response()->json([
-                    'message' => 'An overlapping reporting line exists for this employee.',
+                    'message' => 'Kuna mstari wa kuripoti unaogongana kwa mtumishi huyu.',
                     'errors' => ['effective_from' => ['Overlaps an existing reporting line.']],
                 ], 422);
             }
@@ -202,10 +202,10 @@ class ReportingLineController extends Controller
             if ($subordinates > 0) {
                 return response()->json([
                     'message' => sprintf(
-                        'Cannot retire this primary supervisor: %d subordinate(s) currently report to them.',
+                        'Haiwezi kumstaafisha msimamizi huyu mkuu: wafanyakazi %d wanamripoti kwa sasa.',
                         $subordinates
                     ),
-                    'errors' => ['employee_id' => ['Reassign subordinates first.']],
+                    'errors' => ['employee_id' => ['Wagawie wafanyakazi wengine kwanza.']],
                 ], 422);
             }
         }
@@ -241,7 +241,7 @@ class ReportingLineController extends Controller
         if (! $line) {
             return response()->json([
                 'data' => null,
-                'message' => 'No active reporting line found.',
+                'message' => 'Hakuna mstari wa kuripoti unaotumika uliopatikana.',
             ]);
         }
 

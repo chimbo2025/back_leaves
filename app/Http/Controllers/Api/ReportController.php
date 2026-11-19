@@ -79,7 +79,7 @@ class ReportController extends Controller
         $available = $this->filters->availableFilters();
 
         if (! isset($available[$type])) {
-            return response()->json(['message' => "Unknown report type: {$type}"], 404);
+            return response()->json(['message' => "Aina ya ripoti isiyojulikana: {$type}"], 404);
         }
 
         return response()->json([
@@ -143,7 +143,7 @@ class ReportController extends Controller
             'documents' => $this->queries->documents($user, $filters),
             'audit' => $this->queries->audit($user, $filters),
             default => throw ValidationException::withMessages([
-                'type' => "Unknown report type: {$type}",
+                'type' => "Aina ya ripoti isiyojulikana: {$type}",
             ]),
         };
     }
@@ -161,7 +161,7 @@ class ReportController extends Controller
         $employee = $user->employee;
 
         if (! $employee) {
-            return response()->json(['message' => 'Only employees can create exports.'], 403);
+            return response()->json(['message' => 'Ni watumishi pekee wanaoweza kuunda uhamishaji.'], 403);
         }
 
         $this->auth->assertCanExport($user);
@@ -274,7 +274,7 @@ class ReportController extends Controller
         $user = $request->user();
 
         if (! $user->employee || ! app(PermissionService::class)->can($user, 'admin', 'update')) {
-            return response()->json(['message' => 'Admin permission required.'], 403);
+            return response()->json(['message' => 'Ruhusa ya msimamizi inahitajika.'], 403);
         }
 
         $count = $this->exports->expireOld();
@@ -780,7 +780,7 @@ class ReportController extends Controller
         )->validate();
 
         if (! $this->paymentReports->mayViewHistory($user, $employee)) {
-            return response()->json(['message' => 'You may only view your own payment history.'], 403);
+            return response()->json(['message' => 'Unaweza kutazama historia yako ya malipo pekee.'], 403);
         }
 
         $filters = new LeaveReportFilters($request->query());
@@ -802,7 +802,7 @@ class ReportController extends Controller
         $user = $request->user();
 
         if (! app(PermissionService::class)->can($user, 'audit_logs', 'view')) {
-            return response()->json(['message' => 'Permission denied.'], 403);
+            return response()->json(['message' => 'Ruhusa imekataliwa.'], 403);
         }
 
         $filters = $request->only([

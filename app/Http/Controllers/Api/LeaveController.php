@@ -84,7 +84,7 @@ class LeaveController extends Controller
         }
         if ($parts !== []) {
             return response()->json([
-                'message' => 'This leave type is referenced by '.implode(', ', $parts).' — history is permanent. It cannot be deleted.',
+                'message' => 'Aina hii ya likizo inatumiwa na '.implode(', ', $parts).' — historia ni ya kudumu. Haiwezi kufutwa.',
             ], 422);
         }
 
@@ -108,7 +108,7 @@ class LeaveController extends Controller
             'name' => $name,
         ]);
 
-        return response()->json(['message' => 'Leave type deleted, together with its policies and workflow.']);
+        return response()->json(['message' => 'Aina ya likizo imefutwa, pamoja na sera na mchakato wake.']);
     }
 
     public function currentPolicies(): JsonResponse

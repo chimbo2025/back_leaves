@@ -35,9 +35,9 @@ class StoreDivisionRequest extends FormRequest
     {
         return [
             'parent_department_id.required' => 'A parent department is required.',
-            'parent_department_id.exists' => 'Parent department must exist and be active.',
-            'head_employee_id.exists' => 'Head employee must exist and be active.',
-            'code.unique' => 'This division code is already taken by an active division.',
+            'parent_department_id.exists' => 'Idara mama lazima iwepo na iwe hai.',
+            'head_employee_id.exists' => 'Mkuu aliyechaguliwa lazima awepo na awe hai.',
+            'code.unique' => 'Msimbo huu wa tarafa tayari unatumiwa na tarafa hai.',
         ];
     }
 }

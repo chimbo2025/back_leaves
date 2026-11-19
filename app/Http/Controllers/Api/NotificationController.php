@@ -22,7 +22,7 @@ class NotificationController extends Controller
     public function markRead(Request $request, Notification $notification): JsonResponse
     {
         if ($notification->recipient_employee_id !== $request->user()->employee?->id) {
-            return response()->json(['message' => 'Not yours to mark.'], 403);
+            return response()->json(['message' => 'Hii si yako ya kuweka alama.'], 403);
         }
         $notification->update(['read_at' => now()]);
 

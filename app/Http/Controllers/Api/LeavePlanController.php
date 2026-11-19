@@ -35,7 +35,7 @@ class LeavePlanController extends Controller
                 || $this->permissions->can($user, 'leave_plans', 'view_department');
 
             if (! $hasViewScope) {
-                return response()->json(['message' => 'Missing permission: leave_plans.view_department/view_zone/view_cross_zone.'], 403);
+                return response()->json(['message' => 'Ruhusa haipo: leave_plans.view_department/view_zone/view_cross_zone.'], 403);
             }
 
             $this->accessScope->applyLeaveRequestScope($query, $user, 'leave_plans');
@@ -94,7 +94,7 @@ class LeavePlanController extends Controller
 
         return response()->json([
             'data' => $plan->load(['employee', 'leaveType', 'policy', 'options']),
-            'message' => 'Option selected. The plan is now marked employee_selected.',
+            'message' => 'Chaguo limechaguliwa. Mpango sasa umewekwa kama employee_selected.',
         ]);
     }
 
@@ -145,7 +145,7 @@ class LeavePlanController extends Controller
             || $this->permissions->can($user, 'leave_plans', 'view_department');
 
         if (! $hasViewScope) {
-            return response()->json(['message' => 'Missing permission: leave_plans view scope.'], 403);
+            return response()->json(['message' => 'Ruhusa haipo: wigo wa kutazama leave_plans.'], 403);
         }
 
         $query = LeavePlan::query()

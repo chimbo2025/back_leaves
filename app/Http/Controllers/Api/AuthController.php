@@ -91,7 +91,7 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out.']);
+        return response()->json(['message' => 'Umetoka kwenye mfumo.']);
     }
 
     protected function userPayload(User $user): array

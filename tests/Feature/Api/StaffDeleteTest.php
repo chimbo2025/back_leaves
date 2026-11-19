@@ -26,7 +26,7 @@ it('force deletes an employee and audits the reason', function () {
         'reason' => 'Termination cleanup.',
     ], ['Authorization' => "Bearer {$admin}"])
         ->assertOk()
-        ->assertJsonPath('message', 'Staff member permanently deleted.');
+        ->assertJsonPath('message', 'Mtumishi amefutwa kabisa.');
 
     expect(Employee::find($staff['id']))->toBeNull();
     $this->postJson('/api/login', ['username' => 'scratch.staff', 'password' => 'Password123'])

@@ -42,11 +42,11 @@ class SecureDocumentService
         $this->authorizeDownload($user, $letter);
 
         if ($letter->isRevoked()) {
-            throw ValidationException::withMessages(['document' => 'This document has been revoked and cannot be downloaded.']);
+            throw ValidationException::withMessages(['document' => 'Nyaraka hii imeondolewa na haiwezi kupakuliwa.']);
         }
 
         if (! $letter->storage_path || ! Storage::disk($letter->storage_disk)->exists($letter->storage_path)) {
-            throw ValidationException::withMessages(['document' => 'Document file is missing from storage.']);
+            throw ValidationException::withMessages(['document' => 'Faili ya nyaraka haipo kwenye hifadhi.']);
         }
 
         $this->audit->append('leave_request', (string) $letter->leave_request_id, 'official_letter.download', $user->id, [
@@ -73,7 +73,7 @@ class SecureDocumentService
         $this->authorizeDownload($user, $letter);
 
         if ($letter->isRevoked()) {
-            throw ValidationException::withMessages(['document' => 'This document has been revoked.']);
+            throw ValidationException::withMessages(['document' => 'Nyaraka hii imeondolewa.']);
         }
 
         return Storage::disk($letter->storage_disk)->temporaryUrl(
@@ -88,11 +88,11 @@ class SecureDocumentService
     public function getContent(OfficialLeaveLetter $letter): string
     {
         if ($letter->isRevoked()) {
-            throw ValidationException::withMessages(['document' => 'This document has been revoked.']);
+            throw ValidationException::withMessages(['document' => 'Nyaraka hii imeondolewa.']);
         }
 
         if (! $letter->storage_path || ! Storage::disk($letter->storage_disk)->exists($letter->storage_path)) {
-            throw ValidationException::withMessages(['document' => 'Document file is missing from storage.']);
+            throw ValidationException::withMessages(['document' => 'Faili ya nyaraka haipo kwenye hifadhi.']);
         }
 
         return Storage::disk($letter->storage_disk)->get($letter->storage_path);
@@ -126,7 +126,7 @@ class SecureDocumentService
         $employee = $user->employee;
 
         if (! $employee) {
-            throw ValidationException::withMessages(['authorization' => 'Only employees can download official letters.']);
+            throw ValidationException::withMessages(['authorization' => 'Ni watumishi pekee wanaoweza kupakua barua rasmi.']);
         }
 
         $perm = app(PermissionService::class);
@@ -134,7 +134,7 @@ class SecureDocumentService
         // Subject of the letter: can always download their own.
         if ($employee->id === $letter->leaveRequest?->employee_id) {
             if (! $perm->can($user, 'leave_documents', 'download_own')) {
-                throw ValidationException::withMessages(['authorization' => 'You do not have permission to download your own leave letters.']);
+                throw ValidationException::withMessages(['authorization' => 'Hauna ruhusa ya kupakua barua zako za likizo.']);
             }
 
             return;
@@ -142,7 +142,7 @@ class SecureDocumentService
 
         // HR / authority: need download_hr + scope.
         if (! $perm->can($user, 'leave_documents', 'download_hr')) {
-            throw ValidationException::withMessages(['authorization' => 'You do not have permission to download leave letters for other employees.']);
+            throw ValidationException::withMessages(['authorization' => 'Hauna ruhusa ya kupakua barua za likizo za watumishi wengine.']);
         }
 
         // Check scope.
@@ -153,16 +153,16 @@ class SecureDocumentService
 
         $targetEmployee = $letter->leaveRequest?->employee;
         if (! $targetEmployee) {
-            throw ValidationException::withMessages(['authorization' => 'Cannot determine scope for this document.']);
+            throw ValidationException::withMessages(['authorization' => 'Haiwezi kubainisha wigo wa nyaraka hii.']);
         }
 
         if (! $scope->hasZoneScope()) {
-            throw ValidationException::withMessages(['authorization' => 'You do not have scope over this employee.']);
+            throw ValidationException::withMessages(['authorization' => 'Huna wigo juu ya mtumishi huyu.']);
         }
 
         if (! in_array($targetEmployee->zone_id, $scope->allowedZoneIds, true)
             && ! in_array($targetEmployee->department_id, $scope->allowedDepartmentIds, true)) {
-            throw ValidationException::withMessages(['authorization' => 'This employee is outside your authorised zone/department.']);
+            throw ValidationException::withMessages(['authorization' => 'Mtumishi huyu yuko nje ya kanda/idara uliyoruhusiwa.']);
         }
     }
 

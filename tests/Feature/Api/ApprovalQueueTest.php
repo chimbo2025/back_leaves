@@ -49,7 +49,7 @@ it('reserves the return date and granted days for the final approver', function 
         'end_date' => now()->addDays(63)->toDateString(),
     ], ['Authorization' => 'Bearer '.apiLogin('u1')])
         ->assertStatus(422)
-        ->assertJsonPath('errors.end_date.0', 'Only the final approver may set the return date and leave duration.');
+        ->assertJsonPath('errors.end_date.0', 'Ni mwidhinishaji wa mwisho pekee anayeweza kuweka tarehe ya kurudi na muda wa likizo.');
 
     expect(WorkflowAssignment::where('request_id', $requestId)->where('status', 'pending')->count())->toBe(1);
 });

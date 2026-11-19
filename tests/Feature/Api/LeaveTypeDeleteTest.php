@@ -34,7 +34,7 @@ it('deletes an unused leave type with its policies and workflow', function () {
 
     $this->deleteJson("/api/leave/types/{$type['id']}", [], ['Authorization' => "Bearer {$admin}"])
         ->assertOk()
-        ->assertJsonPath('message', 'Leave type deleted, together with its policies and workflow.');
+        ->assertJsonPath('message', 'Aina ya likizo imefutwa, pamoja na sera na mchakato wake.');
 
     // The whole configuration family goes with it.
     expect(DB::table('leave_types')->where('id', $type['id'])->exists())->toBeFalse()

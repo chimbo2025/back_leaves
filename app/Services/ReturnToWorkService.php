@@ -87,7 +87,7 @@ class ReturnToWorkService
 
         if ($return->status !== LeaveReturn::STATUS_PENDING) {
             throw ValidationException::withMessages([
-                'status' => "This return has already been reported (current: {$return->status}).",
+                'status' => "Kurudi huku kumeripotiwa tayari (hali ya sasa: {$return->status}).",
             ]);
         }
 
@@ -96,7 +96,7 @@ class ReturnToWorkService
 
         if ($lateDays > 0 && $explanation === '') {
             throw ValidationException::withMessages([
-                'explanation' => 'A late return requires an explanation before it can be reviewed.',
+                'explanation' => 'Kurudi kwa kuchelewa kunahitaji maelezo kabla ya kukaguliwa.',
             ]);
         }
 
@@ -135,12 +135,12 @@ class ReturnToWorkService
         $employee = $actor->employee;
 
         if (! $employee || $return->employee_id !== $employee->id) {
-            throw new AuthorizationException('You can only explain your own return to work.');
+            throw new AuthorizationException('Unaweza kueleza kurudi kwako kazini pekee.');
         }
 
         if ($return->status !== LeaveReturn::STATUS_LATE_PENDING_REVIEW) {
             throw ValidationException::withMessages([
-                'status' => "An explanation can only be supplied for a late return awaiting review (current: {$return->status}).",
+                'status' => "Maelezo yanaweza kutolewa kwa kurudi kwa kuchelewa kunakosubiri ukaguzi pekee (hali ya sasa: {$return->status}).",
             ]);
         }
 

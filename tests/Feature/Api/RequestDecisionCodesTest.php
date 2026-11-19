@@ -57,7 +57,7 @@ it('requires the decision code on top of assignment ownership', function () {
         'comments' => 'No cover available.',
     ], ['Authorization' => 'Bearer '.apiLogin('u6')])
         ->assertForbidden()
-        ->assertJsonPath('message', 'Missing permission: requests.reject.');
+        ->assertJsonPath('message', 'Ruhusa haipo: requests.reject.');
 });
 
 it('requires a written reason to return or reject', function () {

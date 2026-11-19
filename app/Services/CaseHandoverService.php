@@ -102,13 +102,13 @@ class CaseHandoverService
             ->when($caseIds !== null, fn ($c) => $c->whereIn('id', $caseIds));
 
         if ($cases->isEmpty()) {
-            throw ValidationException::withMessages(['handover' => 'No open court cases need handing over.']);
+            throw ValidationException::withMessages(['handover' => 'Hakuna kesi za mahakama zilizo wazi zinazohitaji kukabidhiwa.']);
         }
 
         // Recipient eligibility: must be an active employee.
         $recipient = Employee::find($toEmployeeId);
         if (! $recipient || ! $recipient->is_active) {
-            throw ValidationException::withMessages(['to_employee_id' => 'The selected recipient must be an active employee.']);
+            throw ValidationException::withMessages(['to_employee_id' => 'Mpokeaji aliyechaguliwa lazima awe mtumishi hai.']);
         }
         // Recipient may equal the requester only when explicitly allowed by
         // policy; the default leaves this to the caller (preserved for
@@ -129,7 +129,7 @@ class CaseHandoverService
     public function accept(CaseHandover $handover, ?string $notes = null): CaseHandover
     {
         if ($handover->status !== 'proposed') {
-            throw ValidationException::withMessages(['status' => "Cannot accept a handover that is {$handover->status}."]);
+            throw ValidationException::withMessages(['status' => "Haiwezi kukubali makabidhiano yaliyo katika hali {$handover->status}."]);
         }
         $handover->update(['status' => 'accepted', 'responded_at' => now(), 'notes' => $notes]);
 
@@ -145,7 +145,7 @@ class CaseHandoverService
     public function reject(CaseHandover $handover, ?string $notes = null): CaseHandover
     {
         if (! in_array($handover->status, ['proposed', 'accepted'], true)) {
-            throw ValidationException::withMessages(['status' => "Cannot reject a handover that is {$handover->status}."]);
+            throw ValidationException::withMessages(['status' => "Haiwezi kukataa makabidhiano yaliyo katika hali {$handover->status}."]);
         }
         $handover->update(['status' => 'rejected', 'responded_at' => now(), 'notes' => $notes]);
 
@@ -156,7 +156,7 @@ class CaseHandoverService
     public function complete(CaseHandover $handover, string $reviewedByEmployeeId): CaseHandover
     {
         if ($handover->status !== 'accepted') {
-            throw ValidationException::withMessages(['status' => 'Only accepted handovers can be completed (capacity review).']);
+            throw ValidationException::withMessages(['status' => 'Ni makabidhiano yaliyokubaliwa pekee yanayoweza kukamilishwa (ukaguzi wa uwezo).']);
         }
         $handover->update(['status' => 'completed', 'reviewed_by' => $reviewedByEmployeeId, 'reviewed_at' => now()]);
 

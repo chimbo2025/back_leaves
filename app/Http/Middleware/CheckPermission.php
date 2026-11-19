@@ -22,11 +22,11 @@ class CheckPermission
 
         $user = $request->user();
         if (! $user) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
+            return response()->json(['message' => 'Hujathibitishwa.'], 401);
         }
 
         if ($user->is_active !== true) {
-            return response()->json(['message' => 'Account deactivated.'], 403);
+            return response()->json(['message' => 'Akaunti imezimwa.'], 403);
         }
 
         // No `*` wildcard. It used to short-circuit the check, so a route typo of
@@ -35,11 +35,11 @@ class CheckPermission
         // only ever be a bypass. Refused outright, so the mistake fails loudly
         // rather than granting access.
         if ($module === '*') {
-            return response()->json(['message' => 'Wildcard permissions are not supported.'], 500);
+            return response()->json(['message' => 'Ruhusa za wildcard hazitumiki.'], 500);
         }
 
         if (! $this->permissions->can($user, $module, $action)) {
-            return response()->json(['message' => "Missing permission: {$module}.{$action}."], 403);
+            return response()->json(['message' => "Ruhusa haipo: {$module}.{$action}."], 403);
         }
 
         return $next($request);

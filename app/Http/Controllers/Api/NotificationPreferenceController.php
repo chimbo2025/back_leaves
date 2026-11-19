@@ -55,7 +55,7 @@ class NotificationPreferenceController extends Controller
                     'language' => $data['language'] ?? 'en',
                     'timing_config' => $data['timing_config'] ?? [],
                 ],
-                'message' => 'This notification is mandatory and cannot be disabled.',
+                'message' => 'Taarifa hii ni ya lazima na haiwezi kuzimwa.',
             ]);
         }
 

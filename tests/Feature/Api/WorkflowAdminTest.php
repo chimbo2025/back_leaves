@@ -91,7 +91,7 @@ it('deletes an unused definition and records the audit entry', function () {
 
     $this->deleteJson("/api/workflows/{$created['id']}", [], ['Authorization' => "Bearer {$admin}"])
         ->assertOk()
-        ->assertJsonPath('message', 'Workflow deleted.');
+        ->assertJsonPath('message', 'Mchakato umefutwa.');
 
     expect(WorkflowDefinition::find($created['id']))->toBeNull();
     $this->assertDatabaseHas('audit_logs', ['entity_type' => 'workflow', 'entity_id' => $created['id'], 'action' => 'delete']);

@@ -55,7 +55,7 @@ it('submits a draft and advances a full approval chain to completion', function 
     // holds the later HR step, but the chain head is not theirs to decide.
     $this->postJson("/api/requests/{$requestId}/decide", ['decision' => 'approved', 'signature_hash' => str_repeat('a', 64)], ['Authorization' => "Bearer {$adminToken}"])
         ->assertStatus(422)
-        ->assertJsonPath('errors.authorization.0', 'This step is not assigned to you — you cannot decide it.');
+        ->assertJsonPath('errors.authorization.0', 'Hatua hii haijagawiwa kwako — huwezi kuiamua.');
 
     $zonalToken = apiLogin('u8');
     $this->postJson("/api/requests/{$requestId}/decide", ['decision' => 'approved', 'signature_hash' => str_repeat('a', 64)], ['Authorization' => "Bearer {$zonalToken}"])

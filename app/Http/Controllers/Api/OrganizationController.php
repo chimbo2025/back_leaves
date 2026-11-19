@@ -42,7 +42,7 @@ class OrganizationController extends Controller
      */
     private const STRUCTURAL_ROLES = ['DEPT_HEAD', 'ZONAL_HEAD'];
 
-    private const STRUCTURAL_GRANT_MSG = 'Department and zonal heads are appointed to a specific unit. Use the department/zone head picker, not the role list.';
+    private const STRUCTURAL_GRANT_MSG = 'Wakuu wa idara na kanda huteuliwa kwa kitengo maalum. Tumia kichagua cha mkuu wa idara/kanda, si orodha ya nafasi.';
 
     public function __construct(
         protected AuditService $audit,
@@ -175,12 +175,12 @@ class OrganizationController extends Controller
         if ($employees > 0 || $departments > 0) {
             return response()->json([
                 'message' => sprintf(
-                    'Zone "%s" still holds %d department(s) and %d employee(s). Move them first.',
+                    'Kanda "%s" bado ina idara %d na watumishi %d. Wahamishe kwanza.',
                     $zone->name,
                     $departments,
                     $employees,
                 ),
-                'errors' => ['zone' => ['This zone is still in use.']],
+                'errors' => ['zone' => ['Kanda hii bado inatumika.']],
                 'blockers' => ['departments' => $departments, 'employees' => $employees],
             ], 422);
         }
@@ -239,12 +239,12 @@ class OrganizationController extends Controller
         if ($employees > 0 || $children > 0) {
             return response()->json([
                 'message' => sprintf(
-                    'Department "%s" still holds %d sub-unit(s) and %d employee(s). Move them first.',
+                    'Idara "%s" bado ina vitengo vidogo %d na watumishi %d. Wahamishe kwanza.',
                     $department->name,
                     $children,
                     $employees,
                 ),
-                'errors' => ['department' => ['This department is still in use.']],
+                'errors' => ['department' => ['Idara hii bado inatumika.']],
                 'blockers' => ['sub_units' => $children, 'employees' => $employees],
             ], 422);
         }
@@ -523,7 +523,7 @@ class OrganizationController extends Controller
         });
 
         return response()->json([
-            'message' => 'Position deleted; assigned staff were kept with no position assigned.',
+            'message' => 'Nafasi imefutwa; watumishi waliogawiwa wamebaki bila nafasi.',
             'detached_employees' => $detachedEmployees,
         ]);
     }
@@ -560,7 +560,7 @@ class OrganizationController extends Controller
         ]);
 
         if ($employee->id === $request->user()->employee?->id) {
-            return response()->json(['message' => 'You cannot delete your own staff record — ask another administrator.'], 422);
+            return response()->json(['message' => 'Hauwezi kufuta rekodi yako mwenyewe — mwombe msimamizi mwingine.'], 422);
         }
 
         $userId = $employee->user_id;
@@ -626,7 +626,7 @@ class OrganizationController extends Controller
         });
 
         return response()->json([
-            'message' => 'Staff member permanently deleted.',
+            'message' => 'Mtumishi amefutwa kabisa.',
             'id' => $employee->id,
             'detached_documents' => $detachedDocuments,
             'detached_payment_cases' => $detachedPaymentCases,
@@ -722,7 +722,7 @@ class OrganizationController extends Controller
             // delete below, so the drift is cleanable through the profile.
             if (array_intersect($incoming, self::STRUCTURAL_ROLES) !== []) {
                 return response()->json([
-                    'message' => 'One or more roles cannot be granted by you.',
+                    'message' => 'Nafasi moja au zaidi haziwezi kugawiwa na wewe.',
                     'errors' => ['role_ids' => array_values(array_intersect($incoming, self::STRUCTURAL_ROLES))],
                 ], 422);
             }
@@ -740,7 +740,7 @@ class OrganizationController extends Controller
 
             if ($refused !== []) {
                 return response()->json([
-                    'message' => 'One or more roles cannot be granted by you.',
+                    'message' => 'Nafasi moja au zaidi haziwezi kugawiwa na wewe.',
                     'errors' => ['role_ids' => array_values($refused)],
                 ], 422);
             }
@@ -752,7 +752,7 @@ class OrganizationController extends Controller
             foreach ($dropped as $roleId) {
                 if (Role::find($roleId)?->is_final_authority) {
                     return response()->json([
-                        'message' => 'One or more roles cannot be granted by you.',
+                        'message' => 'Nafasi moja au zaidi haziwezi kugawiwa na wewe.',
                         'errors' => ['role_ids' => ['Final authority cannot be removed through the API. It is managed by migration only.']],
                     ], 422);
                 }
@@ -890,7 +890,7 @@ class OrganizationController extends Controller
 
         if ($scoped) {
             return response()->json([
-                'message' => 'This role is held through a scoped grant and cannot be revoked here.',
+                'message' => 'Nafasi hii inashikiliwa kupitia ruhusa yenye wigo na haiwezi kuondolewa hapa.',
                 'errors' => ['role_id' => ['Scoped (department/zone) grants are managed on the employee record.']],
             ], 422);
         }
@@ -903,7 +903,7 @@ class OrganizationController extends Controller
 
         if ($removed === 0) {
             return response()->json([
-                'message' => 'Role is not held unscoped by this employee.',
+                'message' => 'Nafasi hii haishikiliwi bila wigo na mtumishi huyu.',
                 'errors' => ['role_id' => ['Nothing to revoke.']],
             ], 422);
         }
@@ -969,7 +969,7 @@ class OrganizationController extends Controller
 
             if ($refused !== []) {
                 return response()->json([
-                    'message' => 'One or more roles cannot be granted by you.',
+                    'message' => 'Nafasi moja au zaidi haziwezi kugawiwa na wewe.',
                     'errors' => ['role_ids' => array_values($refused)],
                 ], 422);
             }
@@ -1177,7 +1177,7 @@ class OrganizationController extends Controller
         $child = Department::find($data['id'] ?? $this->seqId('departments'));
         if (!Department::validateNoCircularParent($child, Department::find($parentId))) {
             return response()->json([
-                'message' => 'Circular hierarchy detected: a division cannot be its own ancestor.',
+                'message' => 'Mzunguko wa ngazi umegundulika: tarafa haiwezi kuwa babu yake yenyewe.',
                 'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
             ], 422);
         }
@@ -1247,15 +1247,15 @@ class OrganizationController extends Controller
             $parentDept = Department::find($data['parent_department_id']);
             if (!$parentDept) {
                 return response()->json([
-                    'message' => 'Parent department not found.',
-                    'errors' => ['parent_department_id' => ['Parent department not found.']],
+                    'message' => 'Idara mama haipatikani.',
+                    'errors' => ['parent_department_id' => ['Idara mama haipatikani.']],
                 ], 422);
             }
             // Check that division is not its own ancestor
             $child = $division->is_pending ? $division : Department::find($division->id);
             if (!Department::validateNoCircularParent($child, $parentDept)) {
                 return response()->json([
-                    'message' => 'Circular hierarchy detected: a division cannot be its own ancestor.',
+                    'message' => 'Mzunguko wa ngazi umegundulika: tarafa haiwezi kuwa babu yake yenyewe.',
                     'errors' => ['parent_department_id' => ['Circular hierarchy detected.']],
                 ], 422);
             }

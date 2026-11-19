@@ -114,11 +114,11 @@ class WorkflowOverlapGuard
         $candidateTitle = trim((string) ($candidate['workflow_title'] ?? ''));
         if ($candidateTitle !== '' && mb_strtolower($candidateTitle) === mb_strtolower(trim((string) $conflict->workflow_title))) {
             throw ValidationException::withMessages([
-                'workflow_title' => "The title \"{$candidateTitle}\" is already used by another active {$typeName} workflow covering {$existingScope}.",
+                'workflow_title' => "Jina \"{$candidateTitle}\" tayari linatumiwa na mchakato mwingine hai wa {$typeName} unaoshughulikia {$existingScope}.",
             ]);
         }
 
-        $message = "Another active {$typeName} workflow ({$existingTitle}) already covers {$existingScope} for {$existingDuration}. Deactivate or change the existing workflow before creating this one.";
+        $message = "Mchakato mwingine hai wa {$typeName} ({$existingTitle}) tayari unashughulikia {$existingScope} kwa {$existingDuration}. Zima au badilisha mchakato uliopo kabla ya kuunda huu.";
 
         throw ValidationException::withMessages([
             'workflow' => $message,

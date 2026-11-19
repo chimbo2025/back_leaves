@@ -17,7 +17,7 @@ it('force deletes a leave request preserving documents and payment cases', funct
         'reason' => 'Audit correction.',
     ], ['Authorization' => "Bearer {$admin}"])
         ->assertStatus(200)
-        ->assertJsonPath('message', function ($m) { return str_contains($m, 'deleted'); });
+        ->assertJsonPath('message', function ($m) { return str_contains($m, 'imefutwa'); });
 
     expect(LeaveRequest::find($req->id))->toBeNull();
     // Documents and payment cases must survive

@@ -328,15 +328,15 @@ class PermissionService
         $role = Role::find($roleId);
 
         if (! $role) {
-            return ['ok' => false, 'reason' => "Role \"{$roleId}\" does not exist."];
+            return ['ok' => false, 'reason' => "Nafasi \"{$roleId}\" haipo."];
         }
 
         if (! $role->active) {
-            return ['ok' => false, 'reason' => "Role \"{$roleId}\" is archived. Restore it before granting."];
+            return ['ok' => false, 'reason' => "Nafasi \"{$roleId}\" imehifadhiwa kwenye kumbukumbu. Irejeshe kabla ya kugawia."];
         }
 
         if ($role->is_final_authority) {
-            return ['ok' => false, 'reason' => 'Final authority cannot be granted through the API. It is appointed by migration only.'];
+            return ['ok' => false, 'reason' => 'Mamlaka ya mwisho haiwezi kugawiwa kupitia API. Huteuliwa kwa uhamishaji wa mfumo pekee.'];
         }
 
         $roleCodes = $this->codesForRole($roleId)->all();
@@ -349,7 +349,7 @@ class PermissionService
         if ($excess !== []) {
             return [
                 'ok' => false,
-                'reason' => "You cannot grant \"{$roleId}\" because it carries permissions you do not hold: "
+                'reason' => "Hauwezi kugawia \"{$roleId}\" kwa sababu ina ruhusa ambazo huna: "
                     .implode(', ', $excess),
             ];
         }

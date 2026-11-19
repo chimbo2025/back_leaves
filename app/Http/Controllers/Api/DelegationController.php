@@ -99,7 +99,7 @@ class DelegationController extends Controller
     public function revoke(Request $request, Delegation $delegation): JsonResponse
     {
         if ($delegation->delegator_employee_id !== $request->user()->employee?->id) {
-            return response()->json(['message' => 'You can only revoke your own delegations.'], 403);
+            return response()->json(['message' => 'Unaweza kuondoa uwakilishi wako mwenyewe pekee.'], 403);
         }
         $delegation->update(['active' => false]);
 

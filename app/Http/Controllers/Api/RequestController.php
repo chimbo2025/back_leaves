@@ -51,7 +51,7 @@ class RequestController extends Controller
         $user = $request->user();
 
         if ($request->input('scope') === 'all' && ! $this->permissions->can($user, 'requests', 'view')) {
-            return response()->json(['message' => 'Missing permission: requests.view.'], 403);
+            return response()->json(['message' => 'Ruhusa haipo: requests.view.'], 403);
         }
 
         $query = LeaveRequest::with(['employee', 'leaveType', 'policy', 'currentOwner', 'assignments.assignee', 'assignments.step.approvalRole']);
@@ -119,7 +119,7 @@ class RequestController extends Controller
     public function update(StoreLeaveRequest $form, LeaveRequest $leaveRequest): JsonResponse
     {
         if ($leaveRequest->employee_id !== $form->user()->employee?->id) {
-            return response()->json(['message' => 'You can only edit your own requests.'], 403);
+            return response()->json(['message' => 'Unaweza kuhariri maombi yako mwenyewe pekee.'], 403);
         }
 
         $updated = $this->service->updateDraft($leaveRequest, $form->user()->employee->id, $form->validated());
@@ -137,7 +137,7 @@ class RequestController extends Controller
     public function submit(Request $request, LeaveRequest $leaveRequest): JsonResponse
     {
         if ($leaveRequest->employee_id !== $request->user()->employee?->id) {
-            return response()->json(['message' => 'You can only submit your own requests.'], 403);
+            return response()->json(['message' => 'Unaweza kuwasilisha maombi yako mwenyewe pekee.'], 403);
         }
 
         $updated = $this->service->submit($leaveRequest, $request->user()->id);
@@ -148,7 +148,7 @@ class RequestController extends Controller
     public function resubmit(Request $request, LeaveRequest $leaveRequest): JsonResponse
     {
         if ($leaveRequest->employee_id !== $request->user()->employee?->id) {
-            return response()->json(['message' => 'You can only resubmit your own requests.'], 403);
+            return response()->json(['message' => 'Unaweza kuwasilisha tena maombi yako mwenyewe pekee.'], 403);
         }
 
         $updated = $this->service->resubmit($leaveRequest, $request->user()->id);
@@ -245,10 +245,10 @@ class RequestController extends Controller
     public function withdraw(Request $request, LeaveRequest $leaveRequest): JsonResponse
     {
         if ($leaveRequest->employee_id !== $request->user()->employee?->id) {
-            return response()->json(['message' => 'You can only withdraw your own requests.'], 403);
+            return response()->json(['message' => 'Unaweza kuondoa maombi yako mwenyewe pekee.'], 403);
         }
         if (! in_array($leaveRequest->status, ['draft', 'submitted', 'under_review'], true)) {
-            throw ValidationException::withMessages(['status' => 'Only draft, submitted, or under-review requests can be withdrawn.']);
+            throw ValidationException::withMessages(['status' => 'Ni maombi ya rasimu, yaliyowasilishwa, au yanayokaguliwa pekee yanayoweza kuondolewa.']);
         }
 
         return response()->json(['data' => $this->service->withdraw($leaveRequest, $request->user()->id)]);
@@ -268,15 +268,15 @@ class RequestController extends Controller
     public function destroy(Request $request, LeaveRequest $leaveRequest): JsonResponse
     {
         if ($leaveRequest->employee_id !== $request->user()->employee?->id) {
-            return response()->json(['message' => 'You can only delete your own requests.'], 403);
+            return response()->json(['message' => 'Unaweza kufuta maombi yako mwenyewe pekee.'], 403);
         }
         if ($leaveRequest->status !== 'draft') {
-            throw ValidationException::withMessages(['status' => 'Only draft requests can be deleted. Submitted requests are kept in the audit trail.']);
+            throw ValidationException::withMessages(['status' => 'Ni maombi ya rasimu pekee yanayoweza kufutwa. Maombi yaliyowasilishwa yanabaki kwenye kumbukumbu za ukaguzi.']);
         }
 
         $this->service->destroyDraft($leaveRequest, $request->user()->id);
 
-        return response()->json(['message' => 'Draft deleted.', 'id' => $leaveRequest->id]);
+        return response()->json(['message' => 'Rasimu imefutwa.', 'id' => $leaveRequest->id]);
     }
 
     /**
@@ -324,7 +324,7 @@ class RequestController extends Controller
         });
 
         return response()->json([
-            'message' => "{$ref} permanently deleted.",
+            'message' => "{$ref} imefutwa kabisa.",
             'id' => $id,
             'detached_documents' => $documentCount,
             'preserved_payment_cases' => $paymentCaseCount,
@@ -389,7 +389,7 @@ class RequestController extends Controller
         $scope = $this->accessScope->forUser($request->user(), AccessScopeService::REQUESTS);
 
         if (! $this->accessScope->coversEmployee($scope, $employee)) {
-            return response()->json(['message' => 'You do not have access to this employee.'], 403);
+            return response()->json(['message' => 'Huna ufikiaji wa mtumishi huyu.'], 403);
         }
 
         $draft = new LeaveRequest([
@@ -436,7 +436,7 @@ class RequestController extends Controller
         $doc = $leaveRequest->documents()->find($document);
 
         if (! $doc) {
-            return response()->json(['message' => 'Document not found'], 404);
+            return response()->json(['message' => 'Nyaraka haipatikani'], 404);
         }
 
         $this->authorize('delete', $doc);
@@ -492,7 +492,7 @@ class RequestController extends Controller
         $doc = $leaveRequest->documents()->find($document);
 
         if (! $doc) {
-            return response()->json(['message' => 'Document not found'], 404);
+            return response()->json(['message' => 'Nyaraka haipatikani'], 404);
         }
 
         $this->authorize('view', $doc);
@@ -516,13 +516,13 @@ class RequestController extends Controller
 
         $doc = $leaveRequest->documents()->find($document);
         if (! $doc) {
-            return response()->json(['message' => 'Document not found'], 404);
+            return response()->json(['message' => 'Nyaraka haipatikani'], 404);
         }
 
         $this->authorize('view', $doc);
 
         if (! $doc->file_ref || ! Storage::disk('local')->exists($doc->file_ref)) {
-            return response()->json(['message' => 'Document file is missing from storage'], 404);
+            return response()->json(['message' => 'Faili ya nyaraka haipo kwenye hifadhi'], 404);
         }
 
         $this->audit->append('leave_request', (string) $leaveRequest->id, 'document.download', $request->user()->id, [

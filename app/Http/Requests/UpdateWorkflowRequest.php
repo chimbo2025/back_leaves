@@ -47,7 +47,7 @@ class UpdateWorkflowRequest extends FormRequest
                 $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
                     || \App\Models\Role::where('id', $value)->exists();
                 if (! $exists) {
-                    $fail('The selected approval role is invalid.');
+                    $fail('Nafasi ya uidhinishaji iliyochaguliwa si sahihi.');
                 }
             }],
             'steps.*.approver_employee_id' => ['sometimes', 'nullable', 'string', Rule::exists('employees', 'id')],
@@ -58,7 +58,7 @@ class UpdateWorkflowRequest extends FormRequest
                 $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
                     || \App\Models\Role::where('id', $value)->exists();
                 if (! $exists) {
-                    $fail('The selected fallback role is invalid.');
+                    $fail('Nafasi mbadala iliyochaguliwa si sahihi.');
                 }
             }],
             'steps.*.fallback_role_id' => ['nullable', function ($attribute, $value, $fail) {
@@ -68,7 +68,7 @@ class UpdateWorkflowRequest extends FormRequest
                 $exists = \App\Models\ApprovalRole::where('id', $value)->exists()
                     || \App\Models\Role::where('id', $value)->exists();
                 if (! $exists) {
-                    $fail('The selected fallback role is invalid.');
+                    $fail('Nafasi mbadala iliyochaguliwa si sahihi.');
                 }
             }],
             'steps.*.assignment_mode' => ['sometimes', Rule::in(['shared_queue', 'assigned_approver'])],
@@ -102,7 +102,7 @@ class UpdateWorkflowRequest extends FormRequest
             if ($max !== null && $max !== '' && $min !== null && (int) $max < max(1, (int) $min)) {
                 $validator->errors()->add(
                     'max_duration_days',
-                    'The maximum duration must be greater than or equal to the minimum duration.',
+                    'Muda wa juu lazima uwe sawa na au zaidi ya muda wa chini.',
                 );
             }
         });
@@ -119,7 +119,7 @@ class UpdateWorkflowRequest extends FormRequest
             if (! $hasRole) {
                 $validator->errors()->add(
                     "steps.{$index}.approval_role_id",
-                    'Select an approval role for every step.',
+                    'Chagua nafasi ya uidhinishaji kwa kila hatua.',
                 );
             }
 
@@ -128,7 +128,7 @@ class UpdateWorkflowRequest extends FormRequest
                 && $step['approval_role_id'] === $step['fallback_approval_role_id']) {
                 $validator->errors()->add(
                     "steps.{$index}.fallback_approval_role_id",
-                    'The fallback role must be different from the approval role.',
+                    'Nafasi mbadala lazima itofautiane na nafasi ya uidhinishaji.',
                 );
             }
         }
@@ -150,7 +150,7 @@ class UpdateWorkflowRequest extends FormRequest
             if ($strict && empty($approverId)) {
                 $validator->errors()->add(
                     "steps.{$index}.approver_employee_id",
-                    'Select an approver for every step.',
+                    'Chagua mwidhinishaji kwa kila hatua.',
                 );
 
                 continue;
@@ -163,7 +163,7 @@ class UpdateWorkflowRequest extends FormRequest
             if (empty($roleId)) {
                 $validator->errors()->add(
                     "steps.{$index}.approver_employee_id",
-                    'Select an approval role before choosing an approver.',
+                    'Chagua nafasi ya uidhinishaji kabla ya kuchagua mwidhinishaji.',
                 );
 
                 continue;
@@ -191,7 +191,7 @@ class UpdateWorkflowRequest extends FormRequest
             if (! $employee || ! $employee->is_active) {
                 $validator->errors()->add(
                     "steps.{$index}.approver_employee_id",
-                    'The selected approver must be an active employee.',
+                    'Mwidhinishaji aliyechaguliwa lazima awe mtumishi hai.',
                 );
 
                 continue;
@@ -219,7 +219,7 @@ class UpdateWorkflowRequest extends FormRequest
             if (isset($seen[$order])) {
                 $validator->errors()->add(
                     "steps.{$index}.step_order",
-                    'Two steps cannot share the same sequence number.',
+                    'Hatua mbili haziwezi kuwa na namba moja ya mfuatano.',
                 );
             }
 

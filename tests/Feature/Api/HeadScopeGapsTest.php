@@ -119,7 +119,7 @@ it('refuses to mint an unscoped department or zonal head through any role path',
         'username' => 'head.mint', 'password' => 'Password123', 'full_name' => 'Head Mint',
         'position_id' => 'p2', 'department_id' => 'd1', 'zone_id' => 'z1',
         'hire_date' => '2026-01-01', 'role_ids' => ['DEPT_HEAD'],
-    ], $admin)->assertStatus(422)->assertJsonPath('errors.role_ids.0', 'Department and zonal heads are appointed to a specific unit. Use the department/zone head picker, not the role list.');
+    ], $admin)->assertStatus(422)->assertJsonPath('errors.role_ids.0', 'Wakuu wa idara na kanda huteuliwa kwa kitengo maalum. Tumia kichagua cha mkuu wa idara/kanda, si orodha ya nafasi.');
 
     expect(Employee::where('full_name', 'Head Mint')->exists())->toBeFalse();
 

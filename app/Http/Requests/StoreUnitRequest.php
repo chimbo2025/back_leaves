@@ -33,7 +33,7 @@ class StoreUnitRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'code.unique' => 'This unit code is already taken by an active unit.',
+            'code.unique' => 'Msimbo huu wa kitengo tayari unatumiwa na kitengo hai.',
         ];
     }
 }

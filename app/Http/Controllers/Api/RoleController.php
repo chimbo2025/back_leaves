@@ -151,7 +151,7 @@ class RoleController extends Controller
         // rejects. Only a migration may remove it.
         if ($role->is_final_authority) {
             return response()->json([
-                'message' => 'Final Authority is the terminal approver of last resort and cannot be archived.',
+                'message' => 'Mamlaka ya Mwisho ni mwidhinishaji wa mwisho kabisa na haiwezi kuhifadhiwa kwenye kumbukumbu.',
                 'errors' => ['role' => ['This role cannot be deleted.']],
             ], 422);
         }
@@ -182,7 +182,7 @@ class RoleController extends Controller
 
             if (! $reassignTo) {
                 return response()->json([
-                    'message' => 'Role is still required by '.$steps->count().' workflow step(s). Reassign those steps first.',
+                    'message' => 'Nafasi bado inahitajika na '.$steps->count().' hatua za mchakato. Gawia hatua hizo kwanza.',
                     'errors' => ['role' => ['This role is still required by an approval workflow.']],
                     'blockers' => $steps->map(fn ($step) => [
                         'workflow_def_id' => $step->workflow_def_id,
@@ -195,7 +195,7 @@ class RoleController extends Controller
             $target = Role::find($reassignTo);
             if (! $target || ! $target->active || $target->id === $role->id) {
                 return response()->json([
-                    'message' => 'The reassignment target must be an active role other than the one being archived.',
+                    'message' => 'Lengo la kugawia lazima liwe nafasi inayotumika isiyo ile inayohifadhiwa.',
                     'errors' => ['reassign_to' => ['Pick a different, active role to take over these approval steps.']],
                 ], 422);
             }

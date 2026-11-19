@@ -36,7 +36,7 @@ class LeaveReturnController extends Controller
             ?? $this->returns->openForRequest($leaveRequest, $user->id);
 
         if (! $return) {
-            return response()->json(['message' => 'No return-to-work case exists for this request.'], 404);
+            return response()->json(['message' => 'Hakuna kesi ya kurudi kazini kwa ombi hili.'], 404);
         }
 
         $this->authorize('report', $return);
@@ -101,8 +101,8 @@ class LeaveReturnController extends Controller
             'data' => $this->resource($outcome['return']),
             'balance_transaction' => $outcome['transaction'],
             'message' => $outcome['transaction']
-                ? 'Late return reviewed; deduction posted to the ledger.'
-                : 'Late return reviewed.',
+                ? 'Kurudi kwa kuchelewa kumekaguliwa; makato yameandikwa kwenye leja.'
+                : 'Kurudi kwa kuchelewa kumekaguliwa.',
         ]);
     }
 

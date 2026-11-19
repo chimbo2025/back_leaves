@@ -109,7 +109,7 @@ class CaseController extends Controller
 
         $employee = $request->user()->employee;
         if (! $employee) {
-            return response()->json(['message' => 'No employee record is linked to this account.'], 403);
+            return response()->json(['message' => 'Hakuna rekodi ya mtumishi iliyounganishwa na akaunti hii.'], 403);
         }
 
         $request->validate([

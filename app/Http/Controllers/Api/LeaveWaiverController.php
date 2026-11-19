@@ -97,7 +97,7 @@ class LeaveWaiverController extends Controller
             'data' => $outcome['waiver']->load(['employee', 'leaveType', 'policy']),
             'effect' => $outcome['effect'],
             'balance_transaction' => $outcome['transaction'],
-            'message' => $outcome['transaction'] ? 'Waiver approved; balance effect posted to the ledger.' : 'Waiver decision recorded.',
+            'message' => $outcome['transaction'] ? 'Msamaha umeidhinishwa; athari ya salio imeandikwa kwenye leja.' : 'Uamuzi wa msamaha umerekodiwa.',
         ]);
     }
 
@@ -113,7 +113,7 @@ class LeaveWaiverController extends Controller
             'data' => $waiver->load(['employee', 'leaveType', 'policy']),
             'effect' => null,
             'balance_transaction' => null,
-            'message' => 'Waiver rejected.',
+            'message' => 'Msamaha umekataliwa.',
         ]);
     }
 

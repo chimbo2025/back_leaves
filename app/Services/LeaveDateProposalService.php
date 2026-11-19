@@ -50,7 +50,7 @@ class LeaveDateProposalService
             return [
                 'options' => [],
                 'generated' => 0,
-                'explanation' => 'No applicable approved/active policy exists for this leave type; no valid dates can be proposed.',
+                'explanation' => 'Hakuna sera inayotumika (iliyoidhinishwa/hai) kwa aina hii ya likizo; hakuna tarehe sahihi zinazoweza kupendekezwa.',
             ];
         }
 
@@ -172,7 +172,7 @@ class LeaveDateProposalService
 
         foreach ($blackouts as $blackout) {
             if ($start->lte($blackout['end']) && $end->gte($blackout['start'])) {
-                return ['valid' => false, 'reason' => "Blackout period '{$blackout['label']}' excludes these dates."];
+                return ['valid' => false, 'reason' => "Kipindi kilichozuiwa '{$blackout['label']}' hakiruhusu tarehe hizi."];
             }
         }
 
@@ -181,7 +181,7 @@ class LeaveDateProposalService
                 $rs = Carbon::parse($req->start_date);
                 $re = Carbon::parse($req->end_date);
                 if ($start->lte($re) && $end->gte($rs)) {
-                    return ['valid' => false, 'reason' => 'Dates overlap existing leave already on file.'];
+                    return ['valid' => false, 'reason' => 'Tarehe zinagongana na likizo iliyopo tayari kwenye kumbukumbu.'];
                 }
             }
         }
@@ -199,7 +199,7 @@ class LeaveDateProposalService
         $balance = $this->policyService->balanceFor($employee->id, $leaveTypeId);
         $requestedDays = $start->diffInDays($end) + 1;
         if ((float) ($policy->max_days_per_year ?? 0) > 0 && $requestedDays > $balance['remaining']) {
-            return ['valid' => false, 'reason' => 'Requested days exceed remaining balance.'];
+            return ['valid' => false, 'reason' => 'Siku zilizoombwa zinazidi salio lililobaki (Requested days exceed remaining balance).'];
         }
         $breakdown['balance_remaining'] = $balance['remaining'];
         $breakdown['requested_days'] = $requestedDays;
@@ -275,7 +275,7 @@ class LeaveDateProposalService
         if ($minimum > 0 && $remaining < $minimum) {
             return [
                 'ok' => false,
-                'reason' => "Staffing minimum not met ({$remaining} of {$total} would remain, minimum {$minimum}).",
+                'reason' => "Kiwango cha chini cha watumishi hakijafikiwa ({$remaining} kati ya {$total} wangebaki, kiwango cha chini {$minimum}) (Staffing minimum not met).",
                 'peers_on_leave' => $peers,
                 'remaining' => $remaining,
             ];

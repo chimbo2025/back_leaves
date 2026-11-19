@@ -72,10 +72,10 @@ class LeaveRequestService
     public function updateDraft(LeaveRequest $request, string $employeeId, array $data): LeaveRequest
     {
         if ($request->employee_id !== $employeeId) {
-            throw ValidationException::withMessages(['authorization' => 'You can only edit your own requests.']);
+            throw ValidationException::withMessages(['authorization' => 'Unaweza kuhariri maombi yako mwenyewe pekee.']);
         }
         if ($request->status !== 'draft') {
-            throw ValidationException::withMessages(['status' => "Only draft requests can be edited (current: {$request->status})."]);
+            throw ValidationException::withMessages(['status' => "Ni maombi ya rasimu pekee yanayoweza kuhaririwa (hali ya sasa: {$request->status})."]);
         }
 
         $end = $data['end_date'] ?? null;
@@ -109,7 +109,7 @@ class LeaveRequestService
 
         $policy = $this->policy->policyEffectiveAt($request->leave_type_id, $request->start_date);
         if (! $policy) {
-            throw ValidationException::withMessages(['leave_type_id' => 'No active policy exists for this leave type.']);
+            throw ValidationException::withMessages(['leave_type_id' => 'Hakuna sera hai iliyopo kwa aina hii ya likizo.']);
         }
 
         DB::transaction(function () use ($request, $employee, $policy, $actorUserId) {
@@ -135,7 +135,7 @@ class LeaveRequestService
 
             $chain = $this->resolver->resolveWorkflow($request);
             if (empty($chain)) {
-                throw ValidationException::withMessages(['workflow' => 'No approver could be resolved for this request. Contact HR.']);
+                throw ValidationException::withMessages(['workflow' => 'Hakuna mwidhinishaji aliyepatikana kwa ombi hili. Wasiliana na HR.']);
             }
             $request->assignments()->delete();
             $firstAssignment = null;
@@ -184,7 +184,7 @@ class LeaveRequestService
     public function resubmit(LeaveRequest $request, ?string $actorUserId = null): LeaveRequest
     {
         if (! in_array($request->status, self::RESUBMITTABLE_STATUSES, true)) {
-            throw ValidationException::withMessages(['status' => "Only returned or withdrawn requests can be resubmitted (current: {$request->status})."]);
+            throw ValidationException::withMessages(['status' => "Ni maombi yaliyorudishwa au kuondolewa pekee yanayoweza kuwasilishwa tena (hali ya sasa: {$request->status})."]);
         }
 
         $errors = $this->validateForSubmission($request, $request->employee);
@@ -262,7 +262,7 @@ class LeaveRequestService
     public function decide(LeaveRequest $request, Employee $actor, string $decision, ?string $comments = null, ?string $endDate = null, array $signature = []): array
     {
         if (! in_array($decision, ['approved', 'rejected', 'returned'], true)) {
-            throw ValidationException::withMessages(['decision' => "Invalid decision '{$decision}'."]);
+            throw ValidationException::withMessages(['decision' => "Uamuzi si sahihi '{$decision}'."]);
         }
 
         $pending = $request->assignments()
@@ -282,7 +282,7 @@ class LeaveRequestService
         // permission error.
         if (! $current) {
             throw ValidationException::withMessages([
-                'authorization' => 'There are no pending steps to decide.',
+                'authorization' => 'Hakuna hatua zinazosubiri kuamuliwa.',
             ]);
         }
 
@@ -306,7 +306,7 @@ class LeaveRequestService
             }
             if (! $eligible) {
                 throw ValidationException::withMessages([
-                    'authorization' => 'This step is not assigned to you — you cannot decide it.',
+                    'authorization' => 'Hatua hii haijagawiwa kwako — huwezi kuiamua.',
                 ]);
             }
         } else {
@@ -328,7 +328,7 @@ class LeaveRequestService
 
             if ($current->assigned_employee_id !== $actor->id && ! $isDelegate) {
                 throw ValidationException::withMessages([
-                    'authorization' => 'This step is not assigned to you — you cannot decide it.',
+                    'authorization' => 'Hatua hii haijagawiwa kwako — huwezi kuiamua.',
                 ]);
             }
         }
@@ -336,14 +336,14 @@ class LeaveRequestService
         // Self-approval guard.
         if ($actor->id === $request->employee_id) {
             throw ValidationException::withMessages([
-                'authorization' => 'You cannot approve your own request.',
+                'authorization' => 'Huwezi kuidhinisha ombi lako mwenyewe.',
             ]);
         }
 
         if ($decision === 'approved' && $endDate) {
             if ($pendingLeft->isNotEmpty()) {
                 throw ValidationException::withMessages([
-                    'end_date' => 'Only the final approver may set the return date and leave duration.',
+                    'end_date' => 'Ni mwidhinishaji wa mwisho pekee anayeweza kuweka tarehe ya kurudi na muda wa likizo.',
                 ]);
             }
             $this->validateApprovedPeriod($request, $endDate);
@@ -374,7 +374,7 @@ class LeaveRequestService
                     : $this->permissions->can($user, 'requests', 'return'));
             if (! $hasDecisionCode) {
                 $need = ['approved' => 'approve', 'rejected' => 'reject', 'returned' => 'return'][$decision];
-                throw new AuthorizationException("Missing permission: requests.{$need}.");
+                throw new AuthorizationException("Ruhusa haipo: requests.{$need}.");
             }
         }
 
@@ -384,7 +384,7 @@ class LeaveRequestService
         // The return date is decided by the approver: required to finalize an
         // approval, optional (but usable) on intermediate steps.
         if ($decision === 'approved' && $isFinalStep && ! $endDate && $request->end_date === null) {
-            throw ValidationException::withMessages(['end_date' => 'Set the return date (date of resumption) before approving this leave.']);
+            throw ValidationException::withMessages(['end_date' => 'Weka tarehe ya kurudi (tarehe ya kurejea kazini) kabla ya kuidhinisha likizo hii.']);
         }
 
         return DB::transaction(function () use ($request, $actor, $decision, $comments, $endDate, $mine, $signature, $isFinalStep) {
@@ -392,7 +392,7 @@ class LeaveRequestService
                 ->where('status', 'pending')
                 ->update(['status' => 'done', 'decided_at' => now()]);
             if ($updated === 0) {
-                throw ValidationException::withMessages(['authorization' => 'This step has already been decided.']);
+                throw ValidationException::withMessages(['authorization' => 'Hatua hii tayari imeamuliwa.']);
             }
             $mine->refresh();
             $action = ApprovalAction::create([
@@ -590,7 +590,7 @@ class LeaveRequestService
     public function destroyDraft(LeaveRequest $request, ?string $actorUserId = null): void
     {
         if ($request->status !== 'draft') {
-            throw ValidationException::withMessages(['status' => 'Only draft requests can be deleted. Submitted requests are kept in the audit trail.']);
+            throw ValidationException::withMessages(['status' => 'Ni maombi ya rasimu pekee yanayoweza kufutwa. Maombi yaliyowasilishwa yanabaki kwenye kumbukumbu za ukaguzi.']);
         }
 
         DB::transaction(function () use ($request, $actorUserId) {
@@ -642,13 +642,13 @@ class LeaveRequestService
     {
         $start = $request->start_date->toDateString();
         if (Carbon::parse($endDate)->lt(Carbon::parse($start))) {
-            throw ValidationException::withMessages(['end_date' => 'Return date cannot be before the leave start date.']);
+            throw ValidationException::withMessages(['end_date' => 'Tarehe ya kurudi haiwezi kuwa kabla ya tarehe ya kuanza likizo.']);
         }
 
         $policy = $this->policy->policyEffectiveAt($request->leave_type_id, $start);
         $days = $this->policy->dayCount($start, $endDate);
         if ($policy && (float) $policy->max_days_per_request > 0 && $days > (float) $policy->max_days_per_request) {
-            throw ValidationException::withMessages(['end_date' => "Return date gives {$days} days, exceeding the {$policy->max_days_per_request}-day maximum for this leave type."]);
+            throw ValidationException::withMessages(['end_date' => "Tarehe ya kurudi inatoa siku {$days}, ikizidi kiwango cha juu cha siku {$policy->max_days_per_request} kwa aina hii ya likizo."]);
         }
 
         // Annual leave cannot be granted beyond the shared service-year bank.
@@ -659,7 +659,7 @@ class LeaveRequestService
             $annualBalance = $this->policy->balanceFor($request->employee_id, $annualType->id);
             if ($days > $annualBalance['remaining']) {
                 throw ValidationException::withMessages([
-                    'end_date' => "This duration exceeds the {$annualBalance['remaining']}-day shared annual balance after other leave taken in this service year.",
+                    'end_date' => "Muda huu unazidi salio la pamoja la likizo ya mwaka la siku {$annualBalance['remaining']} baada ya likizo nyingine zilizochukuliwa mwaka huu wa utumishi.",
                 ]);
             }
         }

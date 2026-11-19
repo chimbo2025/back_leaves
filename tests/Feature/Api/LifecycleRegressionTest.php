@@ -179,7 +179,7 @@ it('refuses a wildcard permission route instead of bypassing the check', functio
     $response = $middleware->handle($request, fn () => response('passed'), '*');
 
     expect($response->getStatusCode())->toBe(500, 'A wildcard permission must fail loudly, not grant access.');
-    expect($response->getContent())->toContain('Wildcard permissions are not supported');
+    expect($response->getContent())->toContain('Ruhusa za wildcard hazitumiki');
 });
 
 it('refuses to mint authority the caller does not hold', function () {

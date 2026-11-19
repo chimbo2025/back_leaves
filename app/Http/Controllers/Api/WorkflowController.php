@@ -441,7 +441,7 @@ class WorkflowController extends Controller
             ->whereIn('step_id', $workflowDefinition->steps()->pluck('id'))
             ->count();
         if ($inUse > 0) {
-            return response()->json(['message' => "This workflow is attached to {$inUse} request(s) — history is locked. Deactivate it instead."], 422);
+            return response()->json(['message' => "Mchakato huu umeambatanishwa na ombi {$inUse} — historia imefungwa. Zima badala yake."], 422);
         }
 
         $this->guardOtherActiveExists($workflowDefinition);
@@ -460,7 +460,7 @@ class WorkflowController extends Controller
             'leave_type_id' => $leaveTypeId,
         ]);
 
-        return response()->json(['message' => 'Workflow deleted.']);
+        return response()->json(['message' => 'Mchakato umefutwa.']);
     }
 
     /** A leave type must always keep at least one active definition. */

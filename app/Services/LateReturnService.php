@@ -44,12 +44,12 @@ class LateReturnService
             $locked = LeaveReturn::query()->whereKey($return->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->employee_id === $employee->id) {
-                throw ValidationException::withMessages(['authorization' => 'You cannot review your own return.']);
+                throw ValidationException::withMessages(['authorization' => 'Hauwezi kukagua kurudi kwako mwenyewe.']);
             }
 
             if (! in_array($locked->status, LeaveReturn::REVIEWABLE, true)) {
                 throw ValidationException::withMessages([
-                    'status' => "This return case is not awaiting review (current: {$locked->status}).",
+                    'status' => "Kesi hii ya kurudi haisubiri ukaguzi (hali ya sasa: {$locked->status}).",
                 ]);
             }
 
@@ -58,7 +58,7 @@ class LateReturnService
 
             if ($excusedDays < 0 || $excusedDays > $lateDays) {
                 throw ValidationException::withMessages([
-                    'excused_days' => "Excused days must be between 0 and {$lateDays}.",
+                    'excused_days' => "Siku zilizosamehewa lazima ziwe kati ya 0 na {$lateDays}.",
                 ]);
             }
 

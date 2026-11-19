@@ -26,7 +26,7 @@ it('lets the owner hard-delete their own draft', function () {
 
     $this->deleteJson("/api/requests/{$draft['id']}", [], ['Authorization' => "Bearer {$token}"])
         ->assertOk()
-        ->assertJsonPath('message', 'Draft deleted.');
+        ->assertJsonPath('message', 'Rasimu imefutwa.');
 
     // Gone for good: the model no longer resolves, and the audit trail
     // still records who removed which ref.
@@ -50,7 +50,7 @@ it('refuses deleting someone else\'s draft', function () {
     $other = apiLogin('u4');
     $this->deleteJson("/api/requests/{$draft['id']}", [], ['Authorization' => "Bearer {$other}"])
         ->assertStatus(403)
-        ->assertJsonPath('message', 'You can only delete your own requests.');
+        ->assertJsonPath('message', 'Unaweza kufuta maombi yako mwenyewe pekee.');
 
     expect(LeaveRequest::find($draft['id']))->not->toBeNull();
 });
@@ -70,7 +70,7 @@ it('refuses deleting anything that ever entered approval', function () {
 
     $this->deleteJson("/api/requests/{$draft['id']}", [], ['Authorization' => "Bearer {$token}"])
         ->assertUnprocessable()
-        ->assertJsonPath('errors.status.0', 'Only draft requests can be deleted. Submitted requests are kept in the audit trail.');
+        ->assertJsonPath('errors.status.0', 'Ni maombi ya rasimu pekee yanayoweza kufutwa. Maombi yaliyowasilishwa yanabaki kwenye kumbukumbu za ukaguzi.');
 
     expect(LeaveRequest::find($draft['id']))->not->toBeNull();
 });

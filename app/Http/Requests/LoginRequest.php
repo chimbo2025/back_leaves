@@ -24,7 +24,7 @@ class LoginRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             if (! $this->filled('email') && ! $this->filled('username')) {
-                $validator->errors()->add('email', 'Either an email address or username is required.');
+                $validator->errors()->add('email', 'Barua pepe au jina la mtumiaji linahitajika.');
             }
         });
     }

@@ -118,7 +118,7 @@ class RoleAssignmentController extends Controller
     {
         $roleAssignment->delete();
 
-        return response()->json(['message' => 'Role assignment removed.']);
+        return response()->json(['message' => 'Ugawaji wa nafasi umeondolewa.']);
     }
 
     /** @return array<string, mixed> */
