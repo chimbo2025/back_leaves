@@ -51,6 +51,12 @@ it('lets the requester upload a supporting document to their own request', funct
         ->assertOk()
         ->assertJsonPath('documents.0.name', 'certificate.docx');
 
+    // The list payload carries it too (the UI's detail modal reads from here).
+    $list = $this->getJson('/api/requests?scope=all&per_page=100', ['Authorization' => "Bearer {$token}"])
+        ->assertOk();
+    $row = collect($list->json('data.data'))->firstWhere('id', $requestId);
+    expect(collect($row['documents'] ?? [])->pluck('name'))->toContain('certificate.docx');
+
     // And the bytes stream back to the uploader.
     $this->get("/api/requests/{$requestId}/documents/{$docId}/download", ['Authorization' => "Bearer {$token}"])
         ->assertOk()
