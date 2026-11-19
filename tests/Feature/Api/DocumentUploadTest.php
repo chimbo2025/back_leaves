@@ -45,6 +45,16 @@ it('lets the requester upload a supporting document to their own request', funct
     $this->getJson("/api/requests/{$requestId}/documents/{$docId}", ['Authorization' => "Bearer {$token}"])
         ->assertOk()
         ->assertJsonPath('data.name', 'certificate.docx');
+
+    // The request payload carries the document so the detail view can list it.
+    $this->getJson("/api/requests/{$requestId}", ['Authorization' => "Bearer {$token}"])
+        ->assertOk()
+        ->assertJsonPath('documents.0.name', 'certificate.docx');
+
+    // And the bytes stream back to the uploader.
+    $this->get("/api/requests/{$requestId}/documents/{$docId}/download", ['Authorization' => "Bearer {$token}"])
+        ->assertOk()
+        ->assertHeader('content-disposition');
 });
 
 it('still refuses an upload from staff who cannot touch the request', function () {

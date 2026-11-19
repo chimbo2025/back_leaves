@@ -98,6 +98,13 @@ class RequestController extends Controller
             }
         }
 
+        // Attach the documents each caller is allowed to see. The relation is
+        // NOT eager-loaded, so this transient attribute is what serialises
+        // (an eager-loaded relation would win and leak raw file_ref paths).
+        foreach ($paginator->getCollection() as $leaveRequest) {
+            $leaveRequest->setAttribute('documents', $this->visibleDocuments($leaveRequest));
+        }
+
         return response()->json(['data' => $paginator]);
     }
 
@@ -606,6 +613,37 @@ class RequestController extends Controller
         return $this->resolver->resolveWorkflow($request);
     }
 
+    /**
+     * Documents the caller may see, in the compact shape the UI consumes.
+     *
+     * The relation is queried rather than loaded so callers that later
+     * serialise the request do not get raw file_ref paths from an eager-loaded
+     * relation. The policy still makes the per-document call: an uploader
+     * always sees their own file, medical records need the extra code, and
+     * everyone else needs `view` on the request.
+     */
+    protected function visibleDocuments(LeaveRequest $request): array
+    {
+        return $request->documents()
+            ->get()
+            ->filter(function ($doc) use ($request) {
+                $doc->setRelation('request', $request);
+
+                return Gate::allows('view', $doc);
+            })
+            ->map(fn ($doc) => [
+                'id' => $doc->id,
+                'request_id' => $doc->request_id,
+                'document_type' => $doc->document_type,
+                'name' => $doc->name,
+                'size' => $doc->size,
+                'uploaded_by_user_id' => $doc->uploaded_by_user_id,
+                'uploaded_at' => $doc->uploaded_at?->toDateTimeString(),
+            ])
+            ->values()
+            ->all();
+    }
+
     protected function resource(LeaveRequest $request): array
     {
         $assignments = $request->assignments()->with(['assignee', 'step.approvalRole'])->get();
@@ -629,6 +667,7 @@ class RequestController extends Controller
             ...$request->only('id', 'ref', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'is_paid', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
             'employee' => $request->employee ? $request->employee->avatarSummary() : null,
             'leave_type' => $request->leaveType?->only('code', 'name'),
+            'documents' => $this->visibleDocuments($request),
             'assignments' => $assignments->map(function ($a) use ($latestActions, $isRequester) {
                 $action = $latestActions->get($a->id);
                 $decision = $action?->decision;

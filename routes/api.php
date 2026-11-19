@@ -165,12 +165,16 @@ Route::middleware('auth:sanctum')->group(function () {
         // Requiring the medical gate for every document locked out the uploader's
         // own ordinary files; the sensitivity decision belongs to
         // LeaveDocumentPolicy, which knows each document's type and owner.
-        Route::get('{leaveRequest}/documents', [RequestController::class, 'documents'])->middleware('permission:documents.view');
-        Route::get('{leaveRequest}/documents/{document}', [RequestController::class, 'showDocument'])->middleware('permission:documents.view');
+        // The routes themselves carry no coarse documents.* middleware: the
+        // controller authorises `view` on the request and the policy authorises
+        // each document, so the uploader and the people on the approval chain
+        // can open the file even though ordinary staff never hold documents.view.
+        Route::get('{leaveRequest}/documents', [RequestController::class, 'documents']);
+        Route::get('{leaveRequest}/documents/{document}', [RequestController::class, 'showDocument']);
         // Streams the bytes. Declared after the metadata route so "documents/{document}"
         // does not swallow it, and gated on the same code - the policy does the
         // per-document medical/ownership decision in both cases.
-        Route::get('{leaveRequest}/documents/{document}/download', [RequestController::class, 'downloadDocument'])->middleware('permission:documents.view');
+        Route::get('{leaveRequest}/documents/{document}/download', [RequestController::class, 'downloadDocument']);
         Route::get('{leaveRequest}/signatures', [RequestController::class, 'signatures']);
         Route::delete('{leaveRequest}/documents/{document}', [RequestController::class, 'deleteDocument'])->middleware('permission:documents.delete');
         Route::get('{leaveRequest}/approval-insight', [RequestController::class, 'approvalInsight'])->middleware('permission:requests.view');
