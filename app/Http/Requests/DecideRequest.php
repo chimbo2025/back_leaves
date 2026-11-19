@@ -37,7 +37,17 @@ class DecideRequest extends FormRequest
     {
         return [
             'decision' => ['required', 'string', Rule::in(['approved', 'rejected', 'returned'])],
-            'comments' => ['sometimes', 'nullable', 'string', 'max:4000'],
+            // A rejection or a return must carry its reason: the requester is
+            // shown these words (and only these) so they can correct or appeal.
+            // Approvals keep comments optional.
+            'comments' => [
+                'nullable',
+                'string',
+                'max:4000',
+                'required_if:decision,rejected',
+                'required_if:decision,returned',
+                'min:3',
+            ],
             'end_date' => ['nullable', 'date'],
             // Ceremony attestation for approvals: the Approvals UI only enables
             // "Grant leave" after a signature is captured, and the API refuses

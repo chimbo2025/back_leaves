@@ -80,11 +80,20 @@ class RequestController extends Controller
                 ->groupBy('assignment_id')
                 ->map(fn ($rows) => $rows->first());
 
+            $viewerEmployeeId = $user->employee?->id;
+
             foreach ($paginator->getCollection() as $leaveRequest) {
+                // Same rule as resource(): the requester sees the reason for a
+                // return/rejection, never the private commentary on approvals.
+                $isRequester = $viewerEmployeeId !== null && $leaveRequest->employee_id === $viewerEmployeeId;
+
                 foreach ($leaveRequest->assignments as $assignment) {
                     $latest = $latestActions->get($assignment->id);
-                    $assignment->setAttribute('decision', $latest?->decision);
-                    $assignment->setAttribute('decision_comment', $latest?->comments);
+                    $decision = $latest?->decision;
+                    $revealComment = ! $isRequester || in_array($decision, ['rejected', 'returned'], true);
+
+                    $assignment->setAttribute('decision', $decision);
+                    $assignment->setAttribute('decision_comment', $revealComment ? $latest?->comments : null);
                 }
             }
         }
@@ -389,8 +398,12 @@ class RequestController extends Controller
     {
         $this->authorize('update', $leaveRequest);
 
+        // Supporting documents arrive as whatever the court/HR office has:
+        // PDFs, scanned images and the occasional Word file. Rejecting the
+        // whole upload for a .docx made the form look broken, so accept the
+        // common office formats and allow up to 10 MB.
         $request->validate([
-            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
+            'file' => ['required', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png,webp', 'max:10240'],
             'kind' => ['nullable', 'string', 'max:60'],
         ]);
 
@@ -605,31 +618,44 @@ class RequestController extends Controller
             ->groupBy('assignment_id')
             ->map(fn ($rows) => $rows->first());
 
+        // The requester may read the reason behind a rejection or a return -
+        // that is the whole point of sending it back - but not the running
+        // commentary approvers leave on approvals. Filter here rather than in
+        // the browser so the text never leaves the server.
+        $viewerEmployeeId = auth()->user()?->employee?->id;
+        $isRequester = $viewerEmployeeId !== null && $request->employee_id === $viewerEmployeeId;
+
         return [
             ...$request->only('id', 'ref', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'is_paid', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
             'employee' => $request->employee ? $request->employee->avatarSummary() : null,
             'leave_type' => $request->leaveType?->only('code', 'name'),
-            'assignments' => $assignments->map(fn ($a) => [
-                'id' => $a->id,
-                'step_id' => $a->step_id,
-                'role' => $a->assigned_role_id,
-                // Catalog display name (e.g. "HR Reviewer") when the step was
-                // built against an approval role. Fall back to the stored role
-                // id for legacy assignments so old clients keep working.
-                'role_label' => $a->step?->approvalRole?->name ?? $a->assigned_role_id,
-                'assignee_id' => $a->assigned_employee_id,
-                'assignee_name' => $a->assignee?->full_name,
-                'assignee_initials' => $a->assignee?->avatar_initials,
-                'via' => $a->delegated_from_employee_id !== null ? 'delegation' : 'standing',
-                'delegated_from_id' => $a->delegated_from_employee_id,
-                'status' => $a->status,
-                'due_at' => $a->due_at?->toDateTimeString(),
-                'decided_at' => $a->decided_at?->toDateTimeString(),
-                // Why the step was decided (latest recorded action), so the
-                // current approver can read the reasoning of those before.
-                'decision' => $latestActions->get($a->id)?->decision,
-                'decision_comment' => $latestActions->get($a->id)?->comments,
-            ])->values(),
+            'assignments' => $assignments->map(function ($a) use ($latestActions, $isRequester) {
+                $action = $latestActions->get($a->id);
+                $decision = $action?->decision;
+                $revealComment = ! $isRequester || in_array($decision, ['rejected', 'returned'], true);
+
+                return [
+                    'id' => $a->id,
+                    'step_id' => $a->step_id,
+                    'role' => $a->assigned_role_id,
+                    // Catalog display name (e.g. "HR Reviewer") when the step was
+                    // built against an approval role. Fall back to the stored role
+                    // id for legacy assignments so old clients keep working.
+                    'role_label' => $a->step?->approvalRole?->name ?? $a->assigned_role_id,
+                    'assignee_id' => $a->assigned_employee_id,
+                    'assignee_name' => $a->assignee?->full_name,
+                    'assignee_initials' => $a->assignee?->avatar_initials,
+                    'via' => $a->delegated_from_employee_id !== null ? 'delegation' : 'standing',
+                    'delegated_from_id' => $a->delegated_from_employee_id,
+                    'status' => $a->status,
+                    'due_at' => $a->due_at?->toDateTimeString(),
+                    'decided_at' => $a->decided_at?->toDateTimeString(),
+                    // Why the step was decided (latest recorded action), so the
+                    // current approver can read the reasoning of those before.
+                    'decision' => $decision,
+                    'decision_comment' => $revealComment ? $action?->comments : null,
+                ];
+            })->values(),
         ];
     }
 }

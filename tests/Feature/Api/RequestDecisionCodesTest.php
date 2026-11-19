@@ -60,6 +60,66 @@ it('requires the decision code on top of assignment ownership', function () {
         ->assertJsonPath('message', 'Missing permission: requests.reject.');
 });
 
+it('requires a written reason to return or reject', function () {
+    $request = decisionRequest('u7');
+    $token = apiLogin('u6');
+
+    $this->postJson("/api/requests/{$request->id}/decide", [
+        'decision' => 'returned',
+    ], ['Authorization' => "Bearer {$token}"])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('comments');
+
+    $this->postJson("/api/requests/{$request->id}/decide", [
+        'decision' => 'rejected',
+    ], ['Authorization' => "Bearer {$token}"])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('comments');
+
+    // The reason survives on the chain and is readable by the requester.
+    $this->postJson("/api/requests/{$request->id}/decide", [
+        'decision' => 'rejected',
+        'comments' => 'No cover available for these dates.',
+    ], ['Authorization' => "Bearer {$token}"])->assertOk();
+
+    $requesterView = $this->getJson("/api/requests/{$request->id}", [
+        'Authorization' => 'Bearer '.apiLogin('u7'),
+    ])->assertOk();
+
+    $comment = collect($requesterView->json('assignments'))
+        ->firstWhere('decision', 'rejected')['decision_comment'] ?? null;
+
+    expect($comment)->toBe('No cover available for these dates.');
+});
+
+it('hides approval commentary from the requester but keeps it for approvers', function () {
+    $request = decisionRequest('u7');
+    $sig = str_repeat('d', 64);
+
+    // Step 1 approves with a private note.
+    $this->postJson("/api/requests/{$request->id}/decide", [
+        'decision' => 'approved',
+        'comments' => 'Internal note: watch the handover dates.',
+        'signature_hash' => $sig,
+    ], ['Authorization' => 'Bearer '.apiLogin('u6')])->assertOk();
+
+    $requesterComments = collect(
+        $this->getJson("/api/requests/{$request->id}", ['Authorization' => 'Bearer '.apiLogin('u7')])
+            ->assertOk()
+            ->json('assignments'),
+    )->pluck('decision_comment')->filter()->values();
+
+    expect($requesterComments)->toBeEmpty();
+
+    $approverComments = collect(
+        $this->getJson("/api/requests/{$request->id}", ['Authorization' => 'Bearer '.apiLogin('u3')])
+            ->assertOk()
+            ->json('assignments'),
+    )->pluck('decision_comment')->filter()->values();
+
+    expect($approverComments->all())->toContain('Internal note: watch the handover dates.');
+});
+
 it('refuses signature-less approvals', function () {
     $request = decisionRequest('u7');
 

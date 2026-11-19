@@ -155,7 +155,12 @@ Route::middleware('auth:sanctum')->group(function () {
         // Scope-gated chain preview for the new-request form; resolution
         // happens in the controller, so no permission code is required here.
         Route::post('preview', [RequestController::class, 'previewChain']);
-        Route::post('{leaveRequest}/documents', [RequestController::class, 'attachDocument'])->middleware('permission:documents.create');
+        // No documents.create gate here: the requester uploading the file that
+        // supports their own request is the primary use case, and they never
+        // hold that administrative code. attachDocument() authorises `update`
+        // on the request itself, which covers the owner, the current approver
+        // and HR while still refusing unrelated staff (AuthSmokeTest).
+        Route::post('{leaveRequest}/documents', [RequestController::class, 'attachDocument']);
         // Gated on the ordinary read code, not documents.view_medical_documents.
         // Requiring the medical gate for every document locked out the uploader's
         // own ordinary files; the sensitivity decision belongs to
