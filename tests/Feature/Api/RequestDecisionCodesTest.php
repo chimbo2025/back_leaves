@@ -90,6 +90,17 @@ it('requires a written reason to return or reject', function () {
         ->firstWhere('decision', 'rejected')['decision_comment'] ?? null;
 
     expect($comment)->toBe('No cover available for these dates.');
+
+    // The list payload (what the requester's table/detail modal reads) carries
+    // the same reason.
+    $list = $this->getJson('/api/requests?scope=all&per_page=100', [
+        'Authorization' => 'Bearer '.apiLogin('u7'),
+    ])->assertOk();
+
+    $row = collect($list->json('data.data'))->firstWhere('id', $request->id);
+    $listed = collect($row['assignments'] ?? [])->firstWhere('decision', 'rejected');
+
+    expect($listed['decision_comment'] ?? null)->toBe('No cover available for these dates.');
 });
 
 it('hides approval commentary from the requester but keeps it for approvers', function () {
@@ -118,6 +129,14 @@ it('hides approval commentary from the requester but keeps it for approvers', fu
     )->pluck('decision_comment')->filter()->values();
 
     expect($approverComments->all())->toContain('Internal note: watch the handover dates.');
+
+    // Same on the list endpoint an approver actually reads.
+    $approverList = $this->getJson('/api/requests?scope=all&per_page=100', ['Authorization' => 'Bearer '.apiLogin('u3')])
+        ->assertOk();
+    $listedRow = collect($approverList->json('data.data'))->firstWhere('id', $request->id);
+    $listedComments = collect($listedRow['assignments'] ?? [])->pluck('decision_comment')->filter()->values();
+
+    expect($listedComments->all())->toContain('Internal note: watch the handover dates.');
 });
 
 it('refuses signature-less approvals', function () {
