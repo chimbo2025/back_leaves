@@ -32,9 +32,9 @@ class StoreLeaveRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'start_date.after_or_equal' => 'Leave cannot start in the past.',
-            'end_date.after_or_equal' => 'Return date cannot be before the leave start date.',
-            'exception_reason.required_if' => 'An exception reason is required for emergency/monitored exceptions.',
+            'start_date.after_or_equal' => 'Likizo haiwezi kuanza tarehe iliyopita (Leave cannot start in the past).',
+            'end_date.after_or_equal' => 'Tarehe ya kurudi haiwezi kuwa kabla ya tarehe ya kuanza likizo (Return date cannot be before the start date).',
+            'exception_reason.required_if' => 'Sababu ya ubaguzi inahitajika kwa dharura/ubaguzi unaofuatiliwa (An exception reason is required for emergency exceptions).',
         ];
     }
 }

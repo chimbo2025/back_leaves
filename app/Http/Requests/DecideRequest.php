@@ -63,4 +63,12 @@ class DecideRequest extends FormRequest
             'is_paid' => ['nullable', 'boolean'],
         ];
     }
+
+    public function messages(): array
+    {
+        return [
+            'comments.required_if' => 'Sababu ya kukataa au kurudisha ombi inahitajika (A reason is required when rejecting or returning a request).',
+            'signature_hash.required_if' => 'Sahihi inahitajika kabla ya kuidhinisha (A signature is required before approving).',
+        ];
+    }
 }

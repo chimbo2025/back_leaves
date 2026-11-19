@@ -33,22 +33,22 @@ class EligibilityController extends Controller
 
             $blockers = [];
             if (! $policyOk) {
-                $blockers[] = 'No active policy configured.';
+                $blockers[] = 'Hakuna sera hai iliyowekwa (No active policy configured).';
             }
             if (! $tenureOk) {
-                $blockers[] = "Minimum {$pol->min_tenure_months}-month service required; you have {$tenure}.";
+                $blockers[] = "Unatakiwa uwe na utumishi wa angalau miezi {$pol->min_tenure_months}; una miezi {$tenure} (Minimum {$pol->min_tenure_months}-month service required; you have {$tenure}).";
             }
             if (! $noticeOk) {
-                $blockers[] = "Minimum {$pol->min_notice_days}-day advance notice required.";
+                $blockers[] = "Unatakiwa utoe taarifa angalau siku {$pol->min_notice_days} kabla (Minimum {$pol->min_notice_days}-day advance notice required).";
             }
             if (! $docsOk) {
-                $blockers[] = 'Supporting documents required.';
+                $blockers[] = 'Nyaraka za ushahidi zinahitajika (Supporting documents required).';
             }
             if (! $balanceOk) {
-                $blockers[] = 'No remaining balance for this leave type.';
+                $blockers[] = 'Hakuna salio lililobaki kwa aina hii ya likizo (No remaining balance for this leave type).';
             }
             if (! $employee->is_active) {
-                $blockers[] = 'Employee is not active.';
+                $blockers[] = 'Akaunti ya mtumishi haitumiki (Employee is not active).';
             }
 
             return [

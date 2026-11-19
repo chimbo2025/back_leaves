@@ -23,7 +23,7 @@ class LeaveEligibilityService
         $blockers = [];
         $required = [];
         if (! $policy) {
-            $blockers[] = 'No applicable policy (approved/active) found for this leave type and date.';
+            $blockers[] = 'Hakuna sera inayotumika (iliyoidhinishwa/hai) kwa aina hii ya likizo na tarehe hii (No applicable policy found).';
 
             return [
                 'ok' => false,
@@ -35,43 +35,43 @@ class LeaveEligibilityService
         }
         // employee status
         if (isset($employee->is_active) && $employee->is_active === false) {
-            $blockers[] = 'Employee is not active.';
+            $blockers[] = 'Akaunti ya mtumishi haitumiki (Employee is not active).';
         }
         // max per request
         if ($days > 0 && (float) $policy->max_days_per_request > 0 && $days > (float) $policy->max_days_per_request) {
-            $blockers[] = 'Exceeds maximum days per request.';
+            $blockers[] = 'Unazidi kiwango cha juu cha siku kwa ombi moja (Exceeds maximum days per request).';
         }
         // tenure
         if ($this->policy->tenureMonths($employee->hire_date) < (int) $policy->min_tenure_months) {
-            $blockers[] = 'Minimum tenure not met.';
+            $blockers[] = 'Kipindi cha chini cha utumishi hakijatimizwa (Minimum tenure not met).';
         }
         // notice
         $notice = (int) $policy->min_notice_days;
         if ($notice > 0 && empty($options['is_emergency_exception'])) {
             $allowed = now()->startOfDay()->addDays($notice);
             if ($start->startOfDay()->lt($allowed)) {
-                $blockers[] = 'Minimum notice period not met.';
+                $blockers[] = 'Kipindi cha chini cha taarifa hakijatimizwa (Minimum notice period not met).';
             }
         }
         // balance check
         try {
             $bal = $this->policy->balanceFor($employee->id, $leaveTypeId);
             if (($policy->max_days_per_year ?? 0) > 0 && $days > $bal['remaining']) {
-                $blockers[] = 'Insufficient leave balance.';
+                $blockers[] = 'Salio la likizo halitoshi (Insufficient leave balance).';
             }
         } catch (\Throwable $e) {
             // ignore balance check errors
         }
         // documents
         if ($policy->requires_documents) {
-            $required[] = 'Supporting documents may be required.';
+            $required[] = 'Nyaraka za ushahidi zinaweza kuhitajika (Supporting documents may be required).';
         }
         // probation if field exists
         if (isset($employee->probation) && $employee->probation) {
             if (! empty($options['ignore_probation'])) {
                 // ok
             } elseif ((int) $policy->min_tenure_months > 0 && $this->policy->tenureMonths($employee->hire_date) < (int) $policy->min_tenure_months) {
-                $blockers[] = 'Probation period not completed.';
+                $blockers[] = 'Kipindi cha majaribio hakijakamilika (Probation period not completed).';
             }
         }
         // overlap — null-safe on both ends of the interval. An open-ended
@@ -97,7 +97,7 @@ class LeaveEligibilityService
         }
         $overlap = $overlapQuery->exists();
         if ($overlap) {
-            $blockers[] = 'Overlapping leave exists.';
+            $blockers[] = 'Kuna likizo nyingine inayogongana na tarehe hizi (Overlapping leave exists).';
         }
         // medical required if policy requires docs
         $medicalRequired = (bool) $policy->requires_documents;

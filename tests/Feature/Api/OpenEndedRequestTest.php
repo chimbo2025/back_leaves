@@ -43,7 +43,7 @@ it('blocks a later dated request that overlaps open-ended leave', function () {
     $rejected = $this->postJson('/api/requests/'.$second->json('data.id').'/submit', [], ['Authorization' => "Bearer {$token}"])
         ->assertStatus(422);
 
-    expect($rejected->json('errors.eligibility'))->toContain('Overlapping leave exists.');
+    expect($rejected->json('errors.eligibility'))->toContain('Kuna likizo nyingine inayogongana na tarehe hizi (Overlapping leave exists).');
 });
 
 it('blocks start-date-only leave that overlaps an existing submitted request', function () {
@@ -66,7 +66,7 @@ it('blocks start-date-only leave that overlaps an existing submitted request', f
     $rejected = $this->postJson('/api/requests/'.$created->json('data.id').'/submit', [], ['Authorization' => "Bearer {$token}"])
         ->assertStatus(422);
 
-    expect($rejected->json('errors.eligibility'))->toContain('Overlapping leave exists.');
+    expect($rejected->json('errors.eligibility'))->toContain('Kuna likizo nyingine inayogongana na tarehe hizi (Overlapping leave exists).');
 });
 
 it('keeps a fully past open-ended span from blocking a later request', function () {

@@ -674,7 +674,7 @@ class LeaveRequestService
             })
             ->exists();
         if ($overlap) {
-            throw ValidationException::withMessages(['end_date' => 'This return date overlaps another approved leave on the calendar.']);
+            throw ValidationException::withMessages(['end_date' => 'Tarehe hii ya kurudi inagongana na likizo nyingine iliyoidhinishwa kwenye kalenda (This return date overlaps another approved leave on the calendar).']);
         }
     }
 
@@ -692,7 +692,7 @@ class LeaveRequestService
             $errors['eligibility'] = $elig['blockers'];
         }
         if ($request->end_date && $request->start_date->gt($request->end_date)) {
-            $errors['dates'] = 'End date must be on or after the start date.';
+            $errors['dates'] = 'Tarehe ya mwisho lazima iwe sawa na au baada ya tarehe ya kuanza (End date must be on or after the start date).';
         }
 
         return $errors;

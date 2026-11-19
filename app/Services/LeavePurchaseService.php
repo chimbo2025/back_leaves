@@ -61,12 +61,14 @@ class LeavePurchaseService
         );
 
         if (! $enabled) {
-            $blockers[] = 'Leave purchase is not enabled by policy.';
+            $blockers[] = 'Ununuzi wa likizo haujaruhusiwa na sera (Leave purchase is not enabled by policy).';
         }
 
         if ($days !== null && $maxDays !== null && $days > $maxDays) {
             $blockers[] = sprintf(
-                'Requested purchase of %s day(s) exceeds the policy maximum of %s.',
+                'Ombi la kununua siku %s linazidi kiwango cha juu cha sera cha %s (Requested purchase of %s day(s) exceeds the policy maximum of %s).',
+                $this->trim($days),
+                $this->trim($maxDays),
                 $this->trim($days),
                 $this->trim($maxDays),
             );
