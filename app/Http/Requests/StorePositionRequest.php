@@ -17,6 +17,15 @@ class StorePositionRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        foreach (['department_id', 'division_id', 'unit_id'] as $field) {
+            if ($this->input($field) === '') {
+                $this->merge([$field => null]);
+            }
+        }
+    }
+
     public function rules(): array
     {
         $departmentId = $this->input('department_id');
@@ -47,7 +56,7 @@ class StorePositionRequest extends FormRequest
             'code' => ['nullable', 'string', 'max:40', Rule::unique('positions', 'code')],
             'title' => ['required', 'string', 'max:120', $uniqueTitle],
             'title_sw' => ['nullable', 'string', 'max:120'],
-            'department_id' => ['required', Rule::exists('departments', 'id')],
+            'department_id' => ['nullable', Rule::exists('departments', 'id')],
             'division_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'division'))],
             'unit_id' => ['nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'independent_unit'))],
             'zone_id' => ['nullable', Rule::exists('zones', 'id')],

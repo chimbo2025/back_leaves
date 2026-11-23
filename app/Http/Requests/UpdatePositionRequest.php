@@ -13,6 +13,15 @@ class UpdatePositionRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        foreach (['department_id', 'division_id', 'unit_id'] as $field) {
+            if ($this->input($field) === '') {
+                $this->merge([$field => null]);
+            }
+        }
+    }
+
     public function rules(): array
     {
         $position = $this->route('position');
@@ -46,7 +55,7 @@ class UpdatePositionRequest extends FormRequest
             'code' => ['sometimes', 'nullable', 'string', 'max:40', Rule::unique('positions', 'code')->ignore($id)],
             'title' => ['sometimes', 'string', 'max:120', $uniqueTitle],
             'title_sw' => ['sometimes', 'nullable', 'string', 'max:120'],
-            'department_id' => ['sometimes', Rule::exists('departments', 'id')],
+            'department_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')],
             'division_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'division'))],
             'unit_id' => ['sometimes', 'nullable', Rule::exists('departments', 'id')->where(fn ($q) => $q->where('unit_type', 'independent_unit'))],
             'zone_id' => ['sometimes', 'nullable', Rule::exists('zones', 'id')],
