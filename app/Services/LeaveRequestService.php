@@ -534,6 +534,21 @@ class LeaveRequestService
         $request->update(['status' => 'approved', 'decided_at' => now(), 'current_owner_id' => $employee->id]);
         $this->caseService->returnDockets($request);
 
+        // Accountant hand-off: when the approved leave is marked as paid, notify
+        // the accounting holder so they can open and settle the payment case.
+        if ($request->is_paid) {
+            $accountingHolder = $this->resolver->standingHolder($employee, 'ACCOUNTING', exclude: $employee->id, scopeType: 'office_wide');
+            if ($accountingHolder) {
+                $this->notifications->notify(
+                    $accountingHolder->id,
+                    'payment_handoff',
+                    "{$request->ref} imeidhinishwa na italipwa. Fungua kesi ya malipo kwa mtumishi {$employee->full_name}.",
+                    relatedEntityType: 'leave_request',
+                    relatedEntityId: $request->id,
+                );
+            }
+        }
+
         // Phase 3: open the return-to-work case, freezing the expected return
         // date and its calculation snapshot. Idempotent per request.
         $this->returns->openForRequest($request, $actor->user_id);
