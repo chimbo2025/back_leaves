@@ -124,21 +124,46 @@ class AccessScopeService
             return $query->where('employee_id', $employeeId);
         }
 
-        return $query->where(function (Builder $outer) use ($scope, $employeeId) {
-            $outer->whereHas('employee', function (Builder $emp) use ($scope) {
-                $emp->where(function (Builder $inner) use ($scope) {
-                    if ($scope->allowedZoneIds !== []) {
-                        $inner->orWhereIn('zone_id', $scope->allowedZoneIds);
-                    }
+        $isLeaveRequest = $query->getModel() instanceof \App\Models\LeaveRequest;
 
-                    if ($scope->allowedDepartmentIds !== []) {
-                        $inner->orWhereIn('department_id', $scope->allowedDepartmentIds);
-                    }
+        return $query->where(function (Builder $outer) use ($scope, $employeeId, $isLeaveRequest) {
+            // Geographic condition: employee must be in the granted zone/department,
+            // or the request must be the caller's own.
+            $outer->where(function (Builder $geo) use ($scope, $employeeId) {
+                $geo->whereHas('employee', function (Builder $emp) use ($scope) {
+                    $emp->where(function (Builder $inner) use ($scope) {
+                        if ($scope->allowedZoneIds !== []) {
+                            $inner->orWhereIn('zone_id', $scope->allowedZoneIds);
+                        }
+
+                        if ($scope->allowedDepartmentIds !== []) {
+                            $inner->orWhereIn('department_id', $scope->allowedDepartmentIds);
+                        }
+                    });
                 });
+
+                if ($employeeId !== null) {
+                    $geo->orWhere('employee_id', $employeeId);
+                }
             });
 
-            if ($employeeId !== null) {
-                $outer->orWhere('employee_id', $employeeId);
+            // Assignment condition: the caller must be an assigned approver of the
+            // request (or the requester). Only applies to leave requests, which
+            // carry a workflow assignment chain; other entities (plans, etc.)
+            // rely on the geographic condition alone.
+            if ($isLeaveRequest) {
+                $outer->where(function (Builder $assign) use ($employeeId) {
+                    if ($employeeId === null) {
+                        $assign->whereRaw('1 = 0');
+
+                        return;
+                    }
+
+                    $assign->where('employee_id', $employeeId)
+                        ->orWhereHas('assignments', function (Builder $a) use ($employeeId) {
+                            $a->where('assigned_employee_id', $employeeId);
+                        });
+                });
             }
         });
     }
