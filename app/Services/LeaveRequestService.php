@@ -410,12 +410,34 @@ class LeaveRequestService
                 $this->storeDates($request);
             }
 
-            if ($decision === 'approved' && $isFinalStep && array_key_exists('is_paid', $signature)) {
-                $request->update(['is_paid' => $signature['is_paid']]);
-            }
-
             $outcome = $this->advanceAfterDecision($request, $actor, $decision, $comments, $mine);
             if (! $outcome['blocked_by_handover']) {
+                // Final approval carries the HR response letter payload (when
+                // the acting step is the HR reviewer). Persist it only after
+                // the chain has genuinely completed — a handover-blocked final
+                // approval must not leave a dispatched letter behind.
+                if ($decision === 'approved' && $isFinalStep) {
+                    $letter = [];
+
+                    if (array_key_exists('is_paid', $signature)) {
+                        $letter['is_paid'] = $signature['is_paid'];
+                    }
+                    if (array_key_exists('reference_number', $signature) && $signature['reference_number'] !== null && $signature['reference_number'] !== '') {
+                        $letter['reference_number'] = $signature['reference_number'];
+                    }
+                    if (array_key_exists('approved_days', $signature) && $signature['approved_days'] !== null) {
+                        $letter['approved_days'] = (int) $signature['approved_days'];
+                    }
+                    if (array_key_exists('letter_body', $signature) && $signature['letter_body'] !== null && $signature['letter_body'] !== '') {
+                        $letter['letter_body'] = $signature['letter_body'];
+                        $letter['letter_issued_at'] = now();
+                    }
+
+                    if ($letter !== []) {
+                        $request->update($letter);
+                    }
+                }
+
                 // Audit the whole decision context: which configured step ran,
                 // who the builder chose as approver, who actually acted (the
                 // delegate when a delegation was active), the decision, the
