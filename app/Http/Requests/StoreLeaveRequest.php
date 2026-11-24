@@ -24,6 +24,7 @@ class StoreLeaveRequest extends FormRequest
             'end_date' => ['sometimes', 'nullable', 'date', 'after_or_equal:start_date'],
             'is_half_day' => ['sometimes', 'boolean'],
             'reason' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'request_body' => ['sometimes', 'nullable', 'string', 'max:4000'],
             'is_emergency_exception' => ['sometimes', 'boolean'],
             'exception_reason' => ['required_if:is_emergency_exception,true', 'sometimes', 'nullable', 'string', 'max:500'],
         ];

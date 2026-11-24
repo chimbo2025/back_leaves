@@ -58,6 +58,7 @@ class LeaveRequestService
             'is_emergency_exception' => (bool) ($data['is_emergency_exception'] ?? false),
             'exception_reason' => $data['exception_reason'] ?? null,
             'reason' => $data['reason'] ?? null,
+            'request_body' => $data['request_body'] ?? null,
             'status' => 'draft',
         ]);
     }
@@ -90,6 +91,7 @@ class LeaveRequestService
             'is_emergency_exception' => (bool) ($data['is_emergency_exception'] ?? false),
             'exception_reason' => $data['exception_reason'] ?? null,
             'reason' => $data['reason'] ?? null,
+            'request_body' => $data['request_body'] ?? null,
             'policy_id' => null,
         ]);
 

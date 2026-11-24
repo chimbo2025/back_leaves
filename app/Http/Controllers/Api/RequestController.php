@@ -667,7 +667,7 @@ class RequestController extends Controller
         $isRequester = $viewerEmployeeId !== null && $request->employee_id === $viewerEmployeeId;
 
         return [
-            ...$request->only('id', 'ref', 'reference_number', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'approved_days', 'letter_body', 'letter_issued_at', 'is_paid', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
+            ...$request->only('id', 'ref', 'reference_number', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'approved_days', 'request_body', 'letter_body', 'letter_issued_at', 'is_paid', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
             'employee' => $request->employee ? $request->employee->avatarSummary() : null,
             'leave_type' => $request->leaveType?->only('code', 'name'),
             'documents' => $this->visibleDocuments($request),
