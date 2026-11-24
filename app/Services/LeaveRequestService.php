@@ -348,7 +348,7 @@ class LeaveRequestService
                     'end_date' => 'Ni mwidhinishaji wa mwisho pekee anayeweza kuweka tarehe ya kurudi na muda wa likizo.',
                 ]);
             }
-            $this->validateApprovedPeriod($request, $endDate);
+            $this->validateApprovedPeriod($request, $endDate, $actor);
         }
 
         // Capability AND ownership: assignment alone no longer bypasses the
@@ -713,8 +713,13 @@ class LeaveRequestService
      * Approver-provided return date must respect the policy maximum and must
      * not create overlapping approved leave for the same employee.
      */
-    protected function validateApprovedPeriod(LeaveRequest $request, string $endDate): void
+    protected function validateApprovedPeriod(LeaveRequest $request, string $endDate, Employee $actor): void
     {
+        // HR (final authority) may override the balance and max-days-per-request
+        // limits when granting extra days to employees who have not used their
+        // full entitlement.
+        $isHr = $actor->roles->pluck('id')->contains('HR');
+
         $start = $request->start_date->toDateString();
         if (Carbon::parse($endDate)->lt(Carbon::parse($start))) {
             throw ValidationException::withMessages(['end_date' => 'Tarehe ya kurudi haiwezi kuwa kabla ya tarehe ya kuanza likizo.']);
@@ -722,15 +727,17 @@ class LeaveRequestService
 
         $policy = $this->policy->policyEffectiveAt($request->leave_type_id, $start);
         $days = $this->policy->dayCount($start, $endDate);
-        if ($policy && (float) $policy->max_days_per_request > 0 && $days > (float) $policy->max_days_per_request) {
+        if (! $isHr && $policy && (float) $policy->max_days_per_request > 0 && $days > (float) $policy->max_days_per_request) {
             throw ValidationException::withMessages(['end_date' => "Tarehe ya kurudi inatoa siku {$days}, ikizidi kiwango cha juu cha siku {$policy->max_days_per_request} kwa aina hii ya likizo."]);
         }
 
         // Annual leave cannot be granted beyond the shared service-year bank.
         // Other approved leave types also consume that bank, but may still be
         // approved when the bank is exhausted (the annual balance bottoms at 0).
+        // HR (final authority) may override this limit for employees who have
+        // not used their full entitlement.
         $annualType = LeaveType::where('code', 'ANNUAL')->first();
-        if ($annualType && $request->leave_type_id === $annualType->id) {
+        if (! $isHr && $annualType && $request->leave_type_id === $annualType->id) {
             $annualBalance = $this->policy->balanceFor($request->employee_id, $annualType->id);
             if ($days > $annualBalance['remaining']) {
                 throw ValidationException::withMessages([
