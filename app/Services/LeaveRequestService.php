@@ -433,14 +433,65 @@ class LeaveRequestService
                     if (array_key_exists('letter_body', $signature) && $signature['letter_body'] !== null && $signature['letter_body'] !== '') {
                         $letter['letter_body'] = $signature['letter_body'];
                         $letter['letter_issued_at'] = now();
+                    } elseif (empty($request->letter_body)) {
+                        // Auto-generate a default letter body if HR did not provide
+                        // one, so every approved request gets a dispatched letter.
+                        $leaveType = $request->leaveType?->name ?? $request->leave_type_id;
+                        $start = $request->start_date?->toDateString() ?? '—';
+                        $end = $request->end_date?->toDateString() ?? '—';
+                        $days = $request->days ?? '—';
+                        $returnDate = $request->end_date ? $request->end_date->copy()->addDay()->toDateString() : '—';
+                        $year = $request->decided_at?->year ?? now()->year;
+                        $isPaid = array_key_exists('is_paid', $signature) ? (bool) $signature['is_paid'] : (bool) $request->is_paid;
+                        $paidLine = $isPaid
+                            ? 'Likizo hii italipwa / Inalipwa (Paid).'
+                            : 'Likizo hii hailipwi (Unpaid).';
+
+                        $letter['letter_body'] = "Ombi lako la {$leaveType} la mwaka {$year} limeidhinishwa.\n\n"
+                            . "Sababu ya ombi: " . ($request->reason ?: '—') . "\n\n"
+                            . "Kipindi cha likizo: {$start} hadi {$end} ({$days} siku). Tarehe ya kurudi kazini: {$returnDate}.\n\n"
+                            . "Idadi ya siku zilizoidhinishwa: {$days} siku.\n\n"
+                            . "{$paidLine}\n\n"
+                            . "Ahsante.";
+                        $letter['letter_issued_at'] = now();
                     }
 
                     if ($letter !== []) {
                         $request->update($letter);
                     }
-                }
 
-                // Audit the whole decision context: which configured step ran,
+                    // Distribution: notify every distinct approver in the chain
+                    // that the letter has been dispatched.
+                    $distinctApproverIds = $request->assignments()
+                        ->pluck('assigned_employee_id')
+                        ->unique()
+                        ->filter(fn ($id) => $id !== null && $id !== $request->employee_id)
+                        ->all();
+
+                    foreach ($distinctApproverIds as $approverId) {
+                        $this->notifications->notify(
+                            $approverId,
+                            'letter_dispatched',
+                            "{$request->ref} — barua ya majibu imetumwa. Angalia nakala yako.",
+                            relatedEntityType: 'leave_request',
+                            relatedEntityId: $request->id,
+                        );
+                    }
+
+                    // Accountant hand-off when paid.
+                    if ($request->is_paid) {
+                        $accountingHolder = $this->resolver->standingHolder($actor, 'ACCOUNTING', exclude: $actor->id, scopeType: 'office_wide');
+                        if ($accountingHolder) {
+                            $this->notifications->notify(
+                                $accountingHolder->id,
+                                'payment_handoff',
+                                "{$request->ref} imeidhinishwa na italipwa. Fungua kesi ya malipo kwa mtumishi {$request->employee?->full_name}.",
+                                relatedEntityType: 'leave_request',
+                                relatedEntityId: $request->id,
+                            );
+                        }
+                    }
+                }
                 // who the builder chose as approver, who actually acted (the
                 // delegate when a delegation was active), the decision, the
                 // comment and the timestamp.
@@ -557,21 +608,6 @@ class LeaveRequestService
 
         $request->update(['status' => 'approved', 'decided_at' => now(), 'current_owner_id' => $employee->id]);
         $this->caseService->returnDockets($request);
-
-        // Accountant hand-off: when the approved leave is marked as paid, notify
-        // the accounting holder so they can open and settle the payment case.
-        if ($request->is_paid) {
-            $accountingHolder = $this->resolver->standingHolder($employee, 'ACCOUNTING', exclude: $employee->id, scopeType: 'office_wide');
-            if ($accountingHolder) {
-                $this->notifications->notify(
-                    $accountingHolder->id,
-                    'payment_handoff',
-                    "{$request->ref} imeidhinishwa na italipwa. Fungua kesi ya malipo kwa mtumishi {$employee->full_name}.",
-                    relatedEntityType: 'leave_request',
-                    relatedEntityId: $request->id,
-                );
-            }
-        }
 
         // Phase 3: open the return-to-work case, freezing the expected return
         // date and its calculation snapshot. Idempotent per request.

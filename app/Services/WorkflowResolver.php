@@ -237,7 +237,7 @@ class WorkflowResolver
      *
      * The requester is excluded via the $exclude parameter.
      */
-    protected function standingHolder(Employee $employee, string $approvalRoleId, string $resolutionType = 'employee_approval_roles', ?string $exclude = null, string $scopeType = 'requester_department'): ?Employee
+    public function standingHolder(Employee $employee, string $approvalRoleId, string $resolutionType = 'employee_approval_roles', ?string $exclude = null, string $scopeType = 'requester_department'): ?Employee
     {
         // === Source: employee_approval_roles ===
         $approvalHolder = null;
