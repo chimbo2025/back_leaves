@@ -38,6 +38,7 @@ class LeaveRequestService
         protected ReturnToWorkService $returns,
         protected PermissionService $permissions,
         protected LeaveApprovalSignatureService $signatures,
+        protected OfficialLeaveLetterService $letters,
     ) {}
 
     public function createDraft(string $employeeId, array $data): LeaveRequest
@@ -476,6 +477,16 @@ class LeaveRequestService
 
                     if ($letter !== []) {
                         $request->update($letter);
+                    }
+
+                    // Generate and store the official response letter as a
+                    // document so the NAKALA copies and the accountant can
+                    // view/download it from the Document Management section.
+                    try {
+                        $this->letters->generateApprovalLetter($request->fresh(), $actor);
+                    } catch (\Throwable $e) {
+                        // Letter generation must not block the approval flow.
+                        report($e);
                     }
 
                     // Distribution: notify every distinct approver in the chain
