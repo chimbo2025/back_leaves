@@ -58,7 +58,7 @@ class LeaveRequestService
             'is_emergency_exception' => (bool) ($data['is_emergency_exception'] ?? false),
             'exception_reason' => $data['exception_reason'] ?? null,
             'reason' => $data['reason'] ?? null,
-            'request_body' => $data['request_body'] ?? null,
+            'request_body' => $this->requestLetterBody($data['request_body'] ?? null, Employee::find($employeeId), $leaveTypeId),
             'status' => 'draft',
         ]);
     }
@@ -91,11 +91,29 @@ class LeaveRequestService
             'is_emergency_exception' => (bool) ($data['is_emergency_exception'] ?? false),
             'exception_reason' => $data['exception_reason'] ?? null,
             'reason' => $data['reason'] ?? null,
-            'request_body' => $data['request_body'] ?? null,
+            'request_body' => $this->requestLetterBody($data['request_body'] ?? null, $request->employee, $data['leave_type_id']),
             'policy_id' => null,
         ]);
 
         return $request->fresh(['employee', 'leaveType', 'policy']);
+    }
+
+    /**
+     * The employee's application letter is a fixed Swahili template. Persist
+     * it on every create/edit so the letter is never blank, even when an older
+     * client or a draft saved before choosing a leave type omits it.
+     */
+    protected function requestLetterBody(?string $provided, ?Employee $employee, string $leaveTypeId): string
+    {
+        $provided = trim((string) $provided);
+        if ($provided !== '') {
+            return $provided;
+        }
+
+        $department = $employee?->department?->name ?? 'Afisi Kuu';
+        $leaveType = LeaveType::find($leaveTypeId)?->name ?? $leaveTypeId;
+
+        return "Mimi ni mfanya kazi Afisi ya Mkurugenzi wa Mashtaka katika kitengo cha {$department}. Naomba kupatiwa likizo yangu ya {$leaveType} kwa mujibu wa sheria za utumishi.";
     }
 
     /**
