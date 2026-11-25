@@ -26,6 +26,21 @@ it('generates the employee application letter when the body is omitted', functio
         ->toContain('kwa mujibu wa sheria za utumishi.');
 });
 
+it('exposes the requester org snapshot on the request resource', function () {
+    $token = apiLogin('u7');
+
+    $created = test()->postJson('/api/requests', [
+        'leave_type_id' => 'lt1',
+        'start_date' => now()->addDays(60)->toDateString(),
+    ], ['Authorization' => "Bearer {$token}"])->assertStatus(201);
+
+    $department = Department::find('d2');
+
+    $created->assertJsonPath('data.employee_org.name', 'Asha Hassan Haji')
+        ->assertJsonPath('data.employee_org.department', $department->name)
+        ->assertJsonPath('data.employee_org.department_id', 'd2');
+});
+
 it('keeps an explicitly provided application letter', function () {
     $token = apiLogin('u7');
     $body = 'Mimi ni mfanya kazi Afisi ya Mkurugenzi wa Mashtaka katika kitengo cha Sheria. Naomba kupatiwa likizo yangu ya Likizo ya Mwaka kwa mujibu wa sheria za utumishi.';

@@ -54,7 +54,18 @@ class RequestController extends Controller
             return response()->json(['message' => 'Ruhusa haipo: requests.view.'], 403);
         }
 
-        $query = LeaveRequest::with(['employee', 'leaveType', 'policy', 'currentOwner', 'assignments.assignee', 'assignments.step.approvalRole']);
+        $query = LeaveRequest::with([
+            'employee.position',
+            'employee.department',
+            'employee.division',
+            'employee.unit',
+            'employee.zone',
+            'leaveType',
+            'policy',
+            'currentOwner',
+            'assignments.assignee',
+            'assignments.step.approvalRole',
+        ]);
 
         if ($request->input('scope') === 'all') {
             $this->accessScope->applyLeaveRequestScope($query, $user);
@@ -103,6 +114,9 @@ class RequestController extends Controller
         // (an eager-loaded relation would win and leak raw file_ref paths).
         foreach ($paginator->getCollection() as $leaveRequest) {
             $leaveRequest->setAttribute('documents', $this->visibleDocuments($leaveRequest));
+            // Requester snapshot for the letters — present on every row so the
+            // preview does not depend on the viewer's scoped employee list.
+            $leaveRequest->setAttribute('employee_org', $this->employeeOrg($leaveRequest->employee));
         }
 
         return response()->json(['data' => $paginator]);
@@ -111,8 +125,10 @@ class RequestController extends Controller
     public function store(StoreLeaveRequest $request): JsonResponse
     {
         $draft = $this->service->createDraft($request->user()->employee->id, $request->validated());
+        $draft->load(['employee.position', 'employee.department', 'employee.division', 'employee.unit', 'employee.zone', 'leaveType']);
+        $draft->setAttribute('employee_org', $this->employeeOrg($draft->employee));
 
-        return response()->json(['data' => $draft->load(['employee', 'leaveType'])], 201);
+        return response()->json(['data' => $draft], 201);
     }
 
     /** Requester edits their own draft before submission (frontend updateRequest). */
@@ -647,6 +663,33 @@ class RequestController extends Controller
             ->all();
     }
 
+    /**
+     * The requester's org snapshot for the letters. The letter must show the
+     * right person, position and organisation even when the viewer's employee
+     * list is scoped (an approver outside the requester's department cannot
+     * resolve them client-side). Department, division and unit are all
+     * Department rows; the letter falls back to whichever one is set.
+     */
+    protected function employeeOrg(?Employee $employee): ?array
+    {
+        if (! $employee) {
+            return null;
+        }
+
+        return [
+            'name' => $employee->full_name,
+            'title' => $employee->position?->title,
+            'department' => $employee->department?->name,
+            'division' => $employee->division?->name,
+            'unit' => $employee->unit?->name,
+            'zone' => $employee->zone?->name,
+            'department_id' => $employee->department_id,
+            'division_id' => $employee->division_id,
+            'unit_id' => $employee->unit_id,
+            'zone_id' => $employee->zone_id,
+        ];
+    }
+
     protected function resource(LeaveRequest $request): array
     {
         $assignments = $request->assignments()->with(['assignee', 'step.approvalRole'])->get();
@@ -669,6 +712,7 @@ class RequestController extends Controller
         return [
             ...$request->only('id', 'ref', 'reference_number', 'employee_id', 'leave_type_id', 'policy_id', 'start_date', 'end_date', 'days', 'approved_days', 'request_body', 'letter_body', 'letter_issued_at', 'is_paid', 'reason', 'status', 'current_owner_id', 'submitted_at', 'decided_at', 'is_half_day', 'is_emergency_exception', 'exception_reason'),
             'employee' => $request->employee ? $request->employee->avatarSummary() : null,
+            'employee_org' => $this->employeeOrg($request->employee),
             'leave_type' => $request->leaveType?->only('code', 'name'),
             'documents' => $this->visibleDocuments($request),
             'assignments' => $assignments->map(function ($a) use ($latestActions, $isRequester) {
