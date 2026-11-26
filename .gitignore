@@ -23,3 +23,4 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 .env.hosted
+UNDO_cross_zone.sql

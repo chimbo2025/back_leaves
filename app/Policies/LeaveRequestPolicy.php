@@ -37,7 +37,12 @@ class LeaveRequestPolicy
             return $this->permissions->can($user, 'requests', 'view_own');
         }
 
-        if ($employeeId !== null && $request->assignments()->where('assigned_employee_id', $employeeId)->exists()) {
+        // A skipped step was never put to this person; it grants no visibility
+        // (same rule as the list, see AccessScopeService::applyRequestListScope).
+        if ($employeeId !== null && $request->assignments()
+            ->where('assigned_employee_id', $employeeId)
+            ->where('status', '!=', 'skipped')
+            ->exists()) {
             return true;
         }
 
@@ -57,8 +62,7 @@ class LeaveRequestPolicy
             return false;
         }
 
-        return in_array($owner->zone_id, $scope->allowedZoneIds, true)
-            || in_array($owner->department_id, $scope->allowedDepartmentIds, true);
+        return $this->scope->coversEmployee($scope, $owner);
     }
 
     /**

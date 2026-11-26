@@ -99,8 +99,16 @@ class AccessScopeService
             return false;
         }
 
-        return in_array((string) $employee->zone_id, array_map('strval', $scope->allowedZoneIds), true)
-            || in_array((string) $employee->department_id, array_map('strval', $scope->allowedDepartmentIds), true);
+        $zoneIds = array_map('strval', $scope->allowedZoneIds);
+        $orgIds = array_map('strval', $scope->allowedDepartmentIds);
+
+        // A grant's `department_id` may name a department, a division or a unit
+        // (head appointments for all three store the unit id in that column),
+        // while an employee carries those placements in three separate columns.
+        return in_array((string) $employee->zone_id, $zoneIds, true)
+            || in_array((string) $employee->department_id, $orgIds, true)
+            || in_array((string) $employee->division_id, $orgIds, true)
+            || in_array((string) $employee->unit_id, $orgIds, true);
     }
 
     /**
@@ -119,6 +127,13 @@ class AccessScopeService
         }
 
         $employeeId = $user->employee?->id;
+
+        // The leave-request list has its own rule (see applyRequestListScope).
+        // Reports, plans and waivers share this method with other modules and
+        // keep the behaviour below unchanged.
+        if ($module === self::REQUESTS && $query->getModel() instanceof \App\Models\LeaveRequest) {
+            return $this->applyRequestListScope($query, $scope, $employeeId);
+        }
 
         if (! $scope->hasZoneScope()) {
             return $query->where('employee_id', $employeeId);
@@ -163,6 +178,55 @@ class AccessScopeService
                         ->orWhereHas('assignments', function (Builder $a) use ($employeeId) {
                             $a->where('assigned_employee_id', $employeeId);
                         });
+                });
+            }
+        });
+    }
+
+    /**
+     * Visibility rule for the Leave Requests list. A request is visible when
+     * ANY of these holds:
+     *
+     *  1. it is the caller's own;
+     *  2. the caller is an assignee on THIS request's approval chain (a step
+     *     that was skipped does not count) — this is what lets a central role
+     *     with no zone/department/division/unit see the requests it approves;
+     *  3. the requester sits inside an organisational scope the caller holds an
+     *     explicit grant for (zone, department, division or unit).
+     *
+     * Holding an approval role, or merely working in the same department,
+     * grants nothing by itself. This matches LeaveRequestPolicy::view, so the
+     * list never hides (or reveals) a request the detail endpoint would not.
+     * Org-wide reach is handled before this method, via view_cross_zone only.
+     */
+    protected function applyRequestListScope(Builder $query, AccessScope $scope, ?string $employeeId): Builder
+    {
+        if ($employeeId === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $outer) use ($scope, $employeeId) {
+            $outer->where('employee_id', $employeeId)
+                ->orWhereHas('assignments', function (Builder $a) use ($employeeId) {
+                    // A `skipped` step was never put to this person, so it is
+                    // not a workflow assignment that justifies seeing the request.
+                    $a->where('assigned_employee_id', $employeeId)
+                        ->where('status', '!=', 'skipped');
+                });
+
+            if ($scope->hasZoneScope()) {
+                $outer->orWhereHas('employee', function (Builder $emp) use ($scope) {
+                    $emp->where(function (Builder $inner) use ($scope) {
+                        if ($scope->allowedZoneIds !== []) {
+                            $inner->orWhereIn('zone_id', $scope->allowedZoneIds);
+                        }
+
+                        if ($scope->allowedDepartmentIds !== []) {
+                            $inner->orWhereIn('department_id', $scope->allowedDepartmentIds)
+                                ->orWhereIn('division_id', $scope->allowedDepartmentIds)
+                                ->orWhereIn('unit_id', $scope->allowedDepartmentIds);
+                        }
+                    });
                 });
             }
         });

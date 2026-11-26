@@ -215,14 +215,22 @@ it('never widens record scope when a permission carries no zone or department', 
     $ids = $this->getJson('/api/requests?scope=all&per_page=100', ['Authorization' => "Bearer {$token}"])
         ->json('data.data.*.id');
 
-    expect($ids)->toEqualCanonicalizing(LeaveRequest::where('employee_id', 'e8')->pluck('id')->all());
+    // Own requests plus those where e8 is on the approval chain (skipped steps excluded).
+    $visibleToE8 = LeaveRequest::where('employee_id', 'e8')
+        ->orWhereHas('assignments', fn ($q) => $q->where('assigned_employee_id', 'e8')->where('status', '!=', 'skipped'))
+        ->pluck('id')->all();
+
+    expect($ids)->toEqualCanonicalizing($visibleToE8);
 });
 
 it('widens the request list only for the cross-zone code, not for org-wide read', function () {
     grantOnly('reports.view', 'e8');
     $plain = apiLogin('u8');
+    $visibleToE8 = LeaveRequest::where('employee_id', 'e8')
+        ->orWhereHas('assignments', fn ($q) => $q->where('assigned_employee_id', 'e8')->where('status', '!=', 'skipped'))
+        ->count();
     expect($this->getJson('/api/requests?scope=all&per_page=100', ['Authorization' => "Bearer {$plain}"])
-        ->json('data.data'))->toHaveCount(LeaveRequest::where('employee_id', 'e8')->count());
+        ->json('data.data'))->toHaveCount($visibleToE8);
 
     // Now add the one code that is allowed to widen record visibility.
     $role = Role::where('id', 'PROBE_REPORTS_VIEW')->firstOrFail();
@@ -233,5 +241,5 @@ it('widens the request list only for the cross-zone code, not for org-wide read'
 
     $wide = apiLogin('u8');
     $all = $this->getJson('/api/requests?scope=all&per_page=100', ['Authorization' => "Bearer {$wide}"])->json('data.data');
-    expect(count($all))->toBeGreaterThan(LeaveRequest::where('employee_id', 'e8')->count());
+    expect(count($all))->toBeGreaterThan($visibleToE8);
 });

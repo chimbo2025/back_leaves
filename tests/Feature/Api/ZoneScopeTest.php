@@ -164,14 +164,20 @@ it('denies the DPP nothing — the enumerated view_cross_zone codes retain organ
 
 it('scopes a department head to their department, not their zone', function () {
     // e2 is DEPT_HEAD of d3 and sits in zone z1. Nobody else is in d3, so the
-    // department grant must resolve to their own records only — proving that
-    // sharing a zone does not widen visibility.
+    // department grant adds nothing — proving that sharing a zone does not
+    // widen visibility. The only requests e2 can list are the ones on whose
+    // approval chain e2 actually sits (a skipped step does not count).
     $token = apiLogin('u2');
 
     $response = $this->getJson('/api/requests?scope=all&per_page=100', ['Authorization' => "Bearer {$token}"])
         ->assertOk();
 
-    expect($response->json('data.total'))->toBe(0);
+    $onMyChain = LeaveRequest::where('employee_id', 'e2')
+        ->orWhereHas('assignments', fn ($q) => $q->where('assigned_employee_id', 'e2')->where('status', '!=', 'skipped'))
+        ->pluck('id')->all();
+
+    expect($response->json('data.data.*.id'))->toEqualCanonicalizing($onMyChain);
+    expect($response->json('data.total'))->toBeLessThan(LeaveRequest::count());
 });
 
 it('prevents a supervisor without a zone grant from enumerating colleagues', function () {
@@ -217,7 +223,14 @@ it('lets a plain employee see only their own leave, never colleagues', function 
 
     $refs = refsFromResponse($response);
 
-    expect($refs)->toEqualCanonicalizing([NORTH_STAFF_REF, NORTH_STAFF_REF_2]);
+    // Own requests plus those on whose approval chain e8 sits (seeded as the
+    // zonal approver on a few colleagues' requests; skipped steps excluded).
+    $expected = LeaveRequest::where('employee_id', 'e8')
+        ->orWhereHas('assignments', fn ($q) => $q->where('assigned_employee_id', 'e8')->where('status', '!=', 'skipped'))
+        ->pluck('ref')->all();
+
+    expect($refs)->toEqualCanonicalizing($expected);
+    expect($refs)->toContain(NORTH_STAFF_REF, NORTH_STAFF_REF_2);
     expect($refs)->not->toContain(PEMBA_REF, HQ_DPP_REF, HQ_STAFF_REF);
 
     // A colleague in the very same zone is still out of reach.
